@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Archive,
+  ArrowRight,
   BarChart3,
   Boxes,
   Building2,
@@ -109,6 +110,14 @@ export function App() {
   const [copiedBoxId, setCopiedBoxId] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [openedViaQrBanner, setOpenedViaQrBanner] = useState<number | null>(null);
+  // Focused Scan Viewer mode: when a user scans the QR code on a box, show ONLY the box files & search
+  const [isFocusedScanMode, setIsFocusedScanMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search);
+      return Boolean(p.get('box'));
+    }
+    return false;
+  });
   // View mode for box files: 'cards' (optimal for mobile & tablets) vs 'table' (dense desktop)
   const [boxViewMode, setBoxViewMode] = useState<'cards' | 'table'>('cards');
 
@@ -320,6 +329,7 @@ export function App() {
         setSelectedBoxId(parsedId);
         setActiveSection('boxes');
         setOpenedViaQrBanner(parsedId);
+        setIsFocusedScanMode(true);
       }
     }
   }, [boxes]);
@@ -427,6 +437,20 @@ export function App() {
     );
   }, [intraBoxQuery, intraSearchScope, activeBox, allFlattenedRecords, yearFilter]);
 
+  // Filtered records for the dedicated focused scan viewer (only this box + search)
+  const focusedBoxRecords = useMemo(() => {
+    const q = normalizeArabicSearch(intraBoxQuery);
+    if (!q) return activeBox.files;
+    return activeBox.files.filter(
+      (f) =>
+        normalizeArabicSearch(f.supplierName).includes(q) ||
+        normalizeArabicSearch(f.docNo).includes(q) ||
+        normalizeArabicSearch(f.checkNo).includes(q) ||
+        normalizeArabicSearch(f.envelopeLabel).includes(q) ||
+        normalizeArabicSearch(f.notes).includes(q)
+    );
+  }, [activeBox, intraBoxQuery]);
+
   // Navigation helpers
   const navigateToBox = (boxId: number, fileNoToHighlight?: number) => {
     setSelectedBoxId(boxId);
@@ -521,6 +545,259 @@ export function App() {
     () => Math.max(...boxes.map((b) => b.files.length), 1),
     [boxes]
   );
+
+  if (isFocusedScanMode) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col" dir="rtl">
+        {/* Top Header for Mobile Scan Inspection */}
+        <header className="no-print sticky top-0 z-30 bg-[#0B1426]/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex flex-col items-center justify-center font-mono-num font-black shrink-0 shadow-md">
+              <span className="text-[9px] uppercase tracking-wider text-blue-200 font-bold">صندوق</span>
+              <span className="text-lg leading-none font-black">{String(activeBox.id).padStart(2, '0')}</span>
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h1 className="font-display font-bold text-sm sm:text-base text-white truncate">
+                  {activeBox.titleAr}
+                </h1>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 shrink-0">
+                  سنة {activeBox.primaryYear}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 truncate">
+                {activeBox.files.length} ملف ومورد مؤرشف
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleCopyBoxUrl(activeBox.id)}
+              className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center border border-slate-700 transition-colors cursor-pointer"
+              title="مشاركة رابط الصندوق"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsFocusedScanMode(false);
+                const url = new URL(window.location.href);
+                url.searchParams.delete('box');
+                window.history.replaceState({}, '', url.toString());
+              }}
+              className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
+            >
+              <span>لوحة التحكم الكاملة</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </header>
+
+        {/* Quick Box Switcher Bar */}
+        <div className="no-print bg-slate-900/90 border-b border-slate-800 px-4 py-2 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-1.5 text-slate-400 shrink-0">
+            <Boxes className="w-4 h-4 text-blue-400" />
+            <span className="text-[11px]">تبديل الصندوق:</span>
+          </div>
+          <select
+            value={activeBox.id}
+            onChange={(e) => {
+              const newId = Number(e.target.value);
+              setSelectedBoxId(newId);
+              setIntraBoxQuery('');
+              const url = new URL(window.location.href);
+              url.searchParams.set('box', String(newId));
+              window.history.replaceState({}, '', url.toString());
+            }}
+            className="bg-slate-800 text-white border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
+          >
+            {boxes.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.titleAr} ({b.files.length} ملف)
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Sticky Search Field for Instant Warehouse Lookup */}
+        <div className="no-print sticky top-[57px] z-20 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-2.5 shadow-md">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              value={intraBoxQuery}
+              onChange={(e) => setIntraBoxQuery(e.target.value)}
+              placeholder={`ابحث داخل ${activeBox.titleAr} باسم المورد، السند، الشيك...`}
+              className="w-full pl-9 pr-10 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            />
+            {intraBoxQuery && (
+              <button
+                type="button"
+                onClick={() => setIntraBoxQuery('')}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 cursor-pointer"
+                aria-label="مسح البحث"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 px-0.5">
+            <span>
+              عرض <strong className="text-white font-mono-num font-bold">{focusedBoxRecords.length}</strong> من إجمالي <strong className="text-white font-mono-num font-bold">{activeBox.files.length}</strong> مورد
+            </span>
+            {intraBoxQuery && (
+              <span className="text-blue-400 font-medium truncate max-w-[150px]">
+                تصفية: "{intraBoxQuery}"
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* List of Files / Suppliers */}
+        <main className="no-print flex-1 p-3.5 sm:p-4 max-w-2xl mx-auto w-full space-y-3 pb-24">
+          {focusedBoxRecords.length === 0 ? (
+            <div className="bg-slate-900/80 rounded-2xl p-7 text-center border border-slate-800 my-4">
+              <Search className="w-10 h-10 text-slate-500 mx-auto mb-2.5 opacity-60" />
+              <h3 className="font-bold text-white text-sm mb-1">
+                لا توجد نتائج مطابقة
+              </h3>
+              <p className="text-slate-400 text-xs mb-3.5">
+                لم يتم العثور على أي مورد أو سند يطابق "{intraBoxQuery}" في هذا الصندوق.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIntraBoxQuery('')}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 transition-colors cursor-pointer"
+                >
+                  مسح البحث وعرض كل الملفات
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGlobalSearchQuery(intraBoxQuery);
+                    setIsFocusedScanMode(false);
+                    setActiveSection('search');
+                  }}
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  البحث في كل الصناديق الأخرى
+                </button>
+              </div>
+            </div>
+          ) : (
+            focusedBoxRecords.map((file, idx) => (
+              <div
+                key={file.fileNo}
+                className="bg-slate-900/90 hover:bg-slate-850 border border-slate-800 rounded-2xl p-3.5 transition-all shadow-xs"
+              >
+                <div className="flex items-start justify-between gap-2.5 mb-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-7 h-7 rounded-lg bg-blue-600/30 text-blue-300 border border-blue-500/30 font-mono-num font-bold text-xs flex items-center justify-center shrink-0">
+                      {idx + 1}
+                    </span>
+                    <h3 className="font-display font-bold text-sm sm:text-base text-white leading-snug break-words">
+                      {file.supplierName}
+                    </h3>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-amber-300 text-xs font-bold border border-amber-500/20 shrink-0 font-mono-num whitespace-nowrap">
+                    {file.envelopeLabel}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800/80">
+                  <div className="bg-slate-950/80 rounded-xl p-2 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 mb-0.5">رقم السند:</div>
+                    <div className="font-mono-num font-bold text-slate-200 truncate flex items-center justify-between">
+                      <span className="text-xs">{file.docNo || '—'}</span>
+                      {file.docNo && file.docNo !== '—' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(file.docNo);
+                            showToast(`تم نسخ رقم السند: ${file.docNo}`);
+                          }}
+                          className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
+                          title="نسخ"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950/80 rounded-xl p-2 border border-slate-800">
+                    <div className="text-[10px] text-slate-400 mb-0.5">رقم الشيك:</div>
+                    <div className="font-mono-num font-bold text-slate-200 truncate flex items-center justify-between">
+                      <span className="text-xs">{file.checkNo || '—'}</span>
+                      {file.checkNo && file.checkNo !== '—' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(file.checkNo);
+                            showToast(`تم نسخ رقم الشيك: ${file.checkNo}`);
+                          }}
+                          className="text-slate-400 hover:text-white p-0.5 cursor-pointer"
+                          title="نسخ"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {file.notes && (
+                  <div className="mt-2 text-[11px] text-slate-300 bg-slate-950/50 rounded-xl p-2 border border-slate-800/60">
+                    <span className="text-slate-400 font-medium">ملاحظات: </span>
+                    {file.notes}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+
+          {/* Bottom Return to Full Dashboard Banner */}
+          <div className="pt-3 pb-8 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setIsFocusedScanMode(false);
+                const url = new URL(window.location.href);
+                url.searchParams.delete('box');
+                window.history.replaceState({}, '', url.toString());
+              }}
+              className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
+            >
+              <span>الخروج والانتقال إلى لوحة التحكم الكاملة وإدارة كل الصناديق</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </main>
+
+        {/* Toast Notification */}
+        {toastMessage && (
+          <div className="no-print fixed bottom-5 left-5 z-50 bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{toastMessage}</span>
+          </div>
+        )}
+
+        {/* Dedicated Print Media Surface */}
+        <PrintSheet
+          mode={printMode}
+          boxes={yearFilteredBoxes}
+          activeBox={printTargetBox}
+          getBoxUrl={getBoxDirectUrl}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row" dir="rtl">
@@ -775,6 +1052,16 @@ export function App() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
+              onClick={() => setIsFocusedScanMode(true)}
+              className="px-2.5 sm:px-3 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
+              title="فحص الصندوق الحالي بنمط الجوال المخصص للباركود"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
+              <span>فحص الصندوق</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setIsCreateBoxModalOpen(true)}
               className="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
             >
@@ -910,7 +1197,7 @@ export function App() {
         )}
 
         {/* Main Viewport Sections */}
-        <main className="no-print flex-1 p-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto space-y-6">
+        <main className="no-print flex-1 p-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto space-y-6 pb-24 lg:pb-8">
           {/* =========================================================
               1. DASHBOARD VIEW
              ========================================================= */}
@@ -2229,6 +2516,79 @@ export function App() {
             </a>
           </div>
         </footer>
+
+        {/* =========================================================
+            BOTTOM MOBILE NAVIGATION BAR (شريط التنقل السريع للهاتف)
+            Quick 1-thumb navigation between main sections on mobile
+           ========================================================= */}
+        <nav
+          className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-1.5 flex items-center justify-around shadow-lg"
+          aria-label="شريط التنقل السريع للهاتف"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSection('dashboard');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center gap-0.5 text-[11px] font-bold py-1 px-3 rounded-xl transition-colors cursor-pointer ${
+              activeSection === 'dashboard'
+                ? 'text-blue-600'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <BarChart3 className="w-5 h-5" />
+            <span>الرئيسية</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSection('search');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center gap-0.5 text-[11px] font-bold py-1 px-3 rounded-xl transition-colors cursor-pointer ${
+              activeSection === 'search'
+                ? 'text-blue-600'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Search className="w-5 h-5" />
+            <span>البحث الذكي</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSection('boxes');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center gap-0.5 text-[11px] font-bold py-1 px-3 rounded-xl transition-colors cursor-pointer ${
+              activeSection === 'boxes'
+                ? 'text-blue-600'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Boxes className="w-5 h-5" />
+            <span>الصناديق</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveSection('qrcodes');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center gap-0.5 text-[11px] font-bold py-1 px-3 rounded-xl transition-colors cursor-pointer ${
+              activeSection === 'qrcodes'
+                ? 'text-blue-600'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <QrCode className="w-5 h-5" />
+            <span>رموز QR</span>
+          </button>
+        </nav>
       </div>
 
       {/* QR & Barcode Preview Modal */}
