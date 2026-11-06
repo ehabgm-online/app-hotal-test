@@ -6,18 +6,29 @@ import {
   Building2,
   Calendar,
   Check,
+  CheckCircle2,
+  ClipboardPaste,
   Copy,
   Download,
+  Edit3,
   ExternalLink,
   FileCode2,
   FileSpreadsheet,
   FileText,
   FolderOpen,
+  LayoutGrid,
+  List,
   Menu,
+  Pencil,
+  Plus,
   Printer,
   QrCode,
   RotateCcw,
   Search,
+  Share2,
+  Smartphone,
+  Tablet,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -31,6 +42,13 @@ import {
 import { BoxQrCode, Code128Barcode } from './components/BoxCodes';
 import { PrintMode, PrintSheet } from './components/PrintSheet';
 import { QrModal } from './components/QrModal';
+import {
+  AddSingleSupplierModal,
+  BatchAddSuppliersModal,
+  CreateBoxModal,
+  EditBoxModal,
+  EditFileRecordModal,
+} from './components/BoxEditorModals';
 import { downloadStandaloneHtml } from './utils/singleFileExporter';
 
 type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'qrcodes';
@@ -44,7 +62,25 @@ interface FlattenedRecord extends ArchiveFileRecord {
   boxCategory: string;
 }
 
+const STORAGE_KEY = 'smart_docs_boxes_data_v1';
+
+function loadStoredBoxes(): ArchiveBox[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse stored boxes', e);
+  }
+  return ARCHIVE_BOXES;
+}
+
 export function App() {
+  const [boxes, setBoxes] = useState<ArchiveBox[]>(loadStoredBoxes);
   const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
   const [yearFilter, setYearFilter] = useState<YearFilter>('all');
   const [selectedBoxId, setSelectedBoxId] = useState<number>(1);
@@ -56,14 +92,25 @@ export function App() {
   const [intraBoxQuery, setIntraBoxQuery] = useState<string>('');
   const [intraSearchScope, setIntraSearchScope] = useState<IntraSearchScope>('current-box');
 
-  // UI & Print states
+  // UI & Print & Modal states
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
   const [qrModalBox, setQrModalBox] = useState<ArchiveBox | null>(null);
+  const [isCreateBoxModalOpen, setIsCreateBoxModalOpen] = useState<boolean>(false);
+  const [isBatchAddModalOpen, setIsBatchAddModalOpen] = useState<boolean>(false);
+  const [boxToEdit, setBoxToEdit] = useState<ArchiveBox | null>(null);
+  const [recordToEdit, setRecordToEdit] = useState<{
+    boxId: number;
+    boxTitle: string;
+    record: ArchiveFileRecord;
+  } | null>(null);
+  const [isAddSingleModalOpen, setIsAddSingleModalOpen] = useState<boolean>(false);
   const [printMode, setPrintMode] = useState<PrintMode>('all-stickers');
   const [printTargetBoxId, setPrintTargetBoxId] = useState<number>(1);
   const [copiedBoxId, setCopiedBoxId] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [openedViaQrBanner, setOpenedViaQrBanner] = useState<number | null>(null);
+  // View mode for box files: 'cards' (optimal for mobile & tablets) vs 'table' (dense desktop)
+  const [boxViewMode, setBoxViewMode] = useState<'cards' | 'table'>('cards');
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -72,30 +119,220 @@ export function App() {
     }, 2800);
   };
 
+  // Next recommended box ID for creation
+  const nextBoxId = useMemo(() => {
+    const maxId = boxes.reduce((acc, b) => Math.max(acc, b.id), 0);
+    return maxId + 1;
+  }, [boxes]);
+
+  // Dynamic available years list including any years from new boxes
+  const dynamicYears = useMemo(() => {
+    const yrSet = new Set<number>();
+    boxes.forEach((b) => b.years.forEach((y) => yrSet.add(y)));
+    return Array.from(yrSet).sort((a, b) => b - a);
+  }, [boxes]);
+
+  // Handle box creation with pasted suppliers
+  const handleCreateBox = (newBox: ArchiveBox) => {
+    setBoxes((prev) => {
+      const updated = [...prev, newBox];
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Storage quota error', e);
+      }
+      return updated;
+    });
+    setSelectedBoxId(newBox.id);
+    setActiveSection('boxes');
+    showToast(`تم إنشاء ${newBox.titleAr} بنجاح مع إضافة ${newBox.files.length} مورد!`);
+  };
+
+  // Handle batch adding suppliers to an existing box
+  const handleBatchAddSuppliers = (boxId: number, newFiles: ArchiveFileRecord[]) => {
+    setBoxes((prev) => {
+      const updated = prev.map((b) => {
+        if (b.id !== boxId) return b;
+        return {
+          ...b,
+          files: [...b.files, ...newFiles],
+        };
+      });
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Storage quota error', e);
+      }
+      return updated;
+    });
+    showToast(`تمت إضافة ${newFiles.length} مورد بنجاح إلى الصندوق!`);
+  };
+
+  // Update Box details
+  const handleUpdateBox = (updatedBox: ArchiveBox) => {
+    setBoxes((prev) => {
+      const updated = prev.map((b) => (b.id === updatedBox.id ? updatedBox : b));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Storage quota error', e);
+      }
+      return updated;
+    });
+    showToast(`تم حفظ تعديلات ${updatedBox.titleAr} بنجاح!`);
+  };
+
+  // Delete Box
+  const handleDeleteBox = (boxId: number) => {
+    if (boxes.length <= 1) {
+      showToast('لا يمكن حذف الصندوق الوحيد المتبقي.');
+      return;
+    }
+    const remaining = boxes.filter((b) => b.id !== boxId);
+    setBoxes(remaining);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
+    } catch (e) {
+      console.error('Storage quota error', e);
+    }
+    setSelectedBoxId(remaining[0].id);
+    showToast('تم حذف الصندوق ومحتوياته بنجاح.');
+  };
+
+  // Update Single File / Supplier Record
+  const handleUpdateRecord = (boxId: number, updatedRecord: ArchiveFileRecord) => {
+    setBoxes((prev) => {
+      const updated = prev.map((b) => {
+        if (b.id !== boxId) return b;
+        return {
+          ...b,
+          files: b.files.map((f) => (f.fileNo === updatedRecord.fileNo ? updatedRecord : f)),
+        };
+      });
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Storage quota error', e);
+      }
+      return updated;
+    });
+    showToast(`تم تعديل بيانات "${updatedRecord.supplierName}" بنجاح!`);
+  };
+
+  // Delete Single File / Supplier Record
+  const handleDeleteRecord = (boxId: number, fileNo: number) => {
+    const targetBox = boxes.find((b) => b.id === boxId);
+    const targetFile = targetBox?.files.find((f) => f.fileNo === fileNo);
+    if (
+      !window.confirm(
+        `هل أنت متأكد من حذف المورد "${targetFile?.supplierName || 'هذا المورد'}" من ${targetBox?.titleAr || 'الصندوق'}؟`
+      )
+    ) {
+      return;
+    }
+
+    setBoxes((prev) => {
+      const updated = prev.map((b) => {
+        if (b.id !== boxId) return b;
+        const filtered = b.files.filter((f) => f.fileNo !== fileNo);
+        return {
+          ...b,
+          files: filtered,
+        };
+      });
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Storage quota error', e);
+      }
+      return updated;
+    });
+    showToast('تم حذف المورد من الصندوق.');
+  };
+
+  // Add Single Supplier Record
+  const handleAddSingleRecord = (boxId: number, newRecord: ArchiveFileRecord) => {
+    setBoxes((prev) => {
+      const updated = prev.map((b) => {
+        if (b.id !== boxId) return b;
+        return {
+          ...b,
+          files: [...b.files, newRecord],
+        };
+      });
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Storage quota error', e);
+      }
+      return updated;
+    });
+    showToast(`تمت إضافة "${newRecord.supplierName}" بنجاح إلى الصندوق!`);
+  };
+
+  // Re-number file records in a box sequentially from 1 to N
+  const handleRenumberFiles = (boxId: number) => {
+    setBoxes((prev) => {
+      const updated = prev.map((b) => {
+        if (b.id !== boxId) return b;
+        const renumbered = b.files.map((f, i) => ({
+          ...f,
+          fileNo: i + 1,
+          envelopeLabel: `الظرف ${i + 1}`,
+        }));
+        return {
+          ...b,
+          files: renumbered,
+        };
+      });
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (e) {
+        console.error('Storage quota error', e);
+      }
+      return updated;
+    });
+    showToast('تمت إعادة ترقيم ملفات الصندوق تسلسلياً (1 إلى N) بنجاح!');
+  };
+
+  // Reset to original 13 default boxes
+  const handleResetToDefault = () => {
+    if (
+      window.confirm(
+        'هل تريد استعادة الصناديق الافتراضية الأصلية (1 إلى 13)؟ سيتم حذف أي صناديق أو موردين مضافين يدوياً.'
+      )
+    ) {
+      localStorage.removeItem(STORAGE_KEY);
+      setBoxes(ARCHIVE_BOXES);
+      setSelectedBoxId(1);
+      showToast('تمت استعادة الصناديق الأصلية بنجاح.');
+    }
+  };
+
   // Handle ?box=N deep-link from QR Code scans
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const boxParam = params.get('box');
     if (boxParam) {
       const parsedId = Number(boxParam);
-      const exists = ARCHIVE_BOXES.some((b) => b.id === parsedId);
+      const exists = boxes.some((b) => b.id === parsedId);
       if (exists) {
         setSelectedBoxId(parsedId);
         setActiveSection('boxes');
         setOpenedViaQrBanner(parsedId);
       }
     }
-  }, []);
+  }, [boxes]);
 
   const getBoxDirectUrl = (boxId: number): string => {
     const cleanBase = `${window.location.origin}${window.location.pathname}`;
     return `${cleanBase}?box=${boxId}`;
   };
 
-  // Flatten all 291 records for global analytics & instant search
+  // Flatten all records for global analytics & instant search
   const allFlattenedRecords = useMemo<FlattenedRecord[]>(() => {
     const list: FlattenedRecord[] = [];
-    for (const box of ARCHIVE_BOXES) {
+    for (const box of boxes) {
       for (const file of box.files) {
         list.push({
           ...file,
@@ -107,13 +344,13 @@ export function App() {
       }
     }
     return list;
-  }, []);
+  }, [boxes]);
 
   // Filtered boxes according to selected YearFilter
   const yearFilteredBoxes = useMemo<ArchiveBox[]>(() => {
-    if (yearFilter === 'all') return ARCHIVE_BOXES;
-    return ARCHIVE_BOXES.filter((b) => b.years.includes(yearFilter));
-  }, [yearFilter]);
+    if (yearFilter === 'all') return boxes;
+    return boxes.filter((b) => b.years.includes(yearFilter));
+  }, [boxes, yearFilter]);
 
   // Filtered flattened records according to selected YearFilter
   const yearFilteredRecords = useMemo<FlattenedRecord[]>(() => {
@@ -132,12 +369,12 @@ export function App() {
 
   // Active box object
   const activeBox = useMemo<ArchiveBox>(() => {
-    return ARCHIVE_BOXES.find((b) => b.id === selectedBoxId) || ARCHIVE_BOXES[0];
-  }, [selectedBoxId]);
+    return boxes.find((b) => b.id === selectedBoxId) || boxes[0] || ARCHIVE_BOXES[0];
+  }, [boxes, selectedBoxId]);
 
   const printTargetBox = useMemo<ArchiveBox>(() => {
-    return ARCHIVE_BOXES.find((b) => b.id === printTargetBoxId) || activeBox;
-  }, [printTargetBoxId, activeBox]);
+    return boxes.find((b) => b.id === printTargetBoxId) || activeBox;
+  }, [boxes, printTargetBoxId, activeBox]);
 
   // Global Smart Search results
   const smartSearchResults = useMemo<FlattenedRecord[]>(() => {
@@ -269,7 +506,7 @@ export function App() {
   };
 
   const handleDownloadSingleHtml = () => {
-    downloadStandaloneHtml();
+    downloadStandaloneHtml(boxes);
     showToast('تم تحميل ملف HTML المستقل الكامل بنجاح');
   };
 
@@ -281,8 +518,8 @@ export function App() {
   };
 
   const maxFilesInAnyBox = useMemo(
-    () => Math.max(...ARCHIVE_BOXES.map((b) => b.files.length), 1),
-    []
+    () => Math.max(...boxes.map((b) => b.files.length), 1),
+    [boxes]
   );
 
   return (
@@ -380,7 +617,7 @@ export function App() {
                 <Boxes className="w-4 h-4 shrink-0" />
                 <span>إدارة الصناديق</span>
               </span>
-              <span className="text-xs font-mono-num opacity-80">13</span>
+              <span className="text-xs font-mono-num opacity-80">{boxes.length}</span>
             </button>
 
             <button
@@ -406,10 +643,10 @@ export function App() {
           <div className="px-3.5 pt-3 pb-4 border-t border-slate-800/80 flex-1 overflow-y-auto">
             <div className="px-2 pb-2 text-xs font-medium text-slate-400 flex items-center justify-between">
               <span>فهرس الصناديق السريع</span>
-              <span className="font-mono-num">1–13</span>
+              <span className="font-mono-num">1–{boxes.length}</span>
             </div>
             <div className="space-y-0.5">
-              {ARCHIVE_BOXES.map((box) => {
+              {boxes.map((box) => {
                 const isSelected = activeSection === 'boxes' && selectedBoxId === box.id;
                 const matchesYear = yearFilter === 'all' || box.years.includes(yearFilter);
                 return (
@@ -433,6 +670,30 @@ export function App() {
                 );
               })}
             </div>
+
+            {/* Quick Create Box from Sidebar */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsCreateBoxModalOpen(true);
+                setMobileSidebarOpen(false);
+              }}
+              className="w-full mt-3 py-2 px-3 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ إنشاء صندوق جديد</span>
+            </button>
+
+            {boxes.length !== ARCHIVE_BOXES.length && (
+              <button
+                type="button"
+                onClick={handleResetToDefault}
+                className="w-full mt-1.5 py-1 px-2 text-[11px] text-slate-400 hover:text-rose-400 flex items-center justify-center gap-1 cursor-pointer transition-colors"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>استعادة الافتراضي (1-13)</span>
+              </button>
+            )}
           </div>
 
           {/* Sidebar Footer Actions */}
@@ -494,7 +755,7 @@ export function App() {
             >
               كل السنوات
             </button>
-            {AVAILABLE_YEARS.map((yr) => (
+            {dynamicYears.map((yr) => (
               <button
                 key={yr}
                 type="button"
@@ -510,15 +771,24 @@ export function App() {
             ))}
           </div>
 
-          {/* Zone 3: Single Primary Action */}
+          {/* Zone 3: Primary Action & Create Box */}
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
+              onClick={() => setIsCreateBoxModalOpen(true)}
+              className="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>إنشاء صندوق جديد</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => triggerPrint('all-stickers')}
-              className="px-3.5 sm:px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+              className="px-3 sm:px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>طباعة ملصقات كل الصناديق (1–13) للصق</span>
+              <span>طباعة ملصقات كل الصناديق ({boxes.length})</span>
             </button>
           </div>
         </header>
@@ -559,24 +829,83 @@ export function App() {
           </div>
         )}
 
-        {/* QR Scan Deep-Link Contextual Banner */}
+        {/* QR Scan Deep-Link Contextual Banner - Enhanced for Mobile & Tablet Warehouse Inspection */}
         {openedViaQrBanner !== null && activeSection === 'boxes' && (
-          <div className="no-print mx-4 sm:mx-6 mt-4 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 text-xs sm:text-sm text-blue-900">
-              <QrCode className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>
-                تم فتح <strong>صندوق {openedViaQrBanner}</strong> مباشرة عبر الرابط الذكي لرمز الاستجابة
-                السريعة (QR).
-              </span>
+          <div className="no-print mx-3 sm:mx-6 mt-4 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white rounded-2xl p-4 sm:p-5 shadow-xl border border-blue-900/50 relative overflow-hidden">
+            {/* Background watermark */}
+            <div className="absolute -left-6 -bottom-6 opacity-10 pointer-events-none">
+              <QrCode className="w-36 h-36 text-white" />
             </div>
-            <button
-              type="button"
-              onClick={() => setOpenedViaQrBanner(null)}
-              className="text-blue-600 hover:text-blue-900 p-1 cursor-pointer"
-              aria-label="إغلاق التنبيه"
-            >
-              <X className="w-4 h-4" />
-            </button>
+
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+              <div className="flex items-center gap-3.5">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-blue-600 text-white flex flex-col items-center justify-center font-mono-num font-black shrink-0 shadow-lg border border-blue-400/30">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-blue-200">صندوق</span>
+                  <span className="text-2xl sm:text-3xl leading-none">{String(activeBox.id).padStart(2, '0')}</span>
+                </div>
+                <div className="space-y-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      فحص فوري عبر الباركود والهاتف
+                    </span>
+                    <span className="text-xs font-mono-num text-slate-300">
+                      {activeBox.code} · سنة {activeBox.primaryYear}
+                    </span>
+                  </div>
+                  <h1 className="font-display font-extrabold text-lg sm:text-xl text-white">
+                    {activeBox.titleAr} — {activeBox.subtitleAr}
+                  </h1>
+                  <p className="text-xs text-slate-300">
+                    إجمالي المستندات والملفات المؤرشفة:{' '}
+                    <strong className="text-amber-400 font-mono-num text-sm font-bold">
+                      {activeBox.files.length} ملف
+                    </strong>{' '}
+                    · {activeBox.categoryScope}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-2 md:pt-0 border-t md:border-t-0 border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAddSingleModalOpen(true)}
+                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ إضافة مورد</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (navigator.share) {
+                      navigator.share({
+                        title: activeBox.titleAr,
+                        text: `محتويات ${activeBox.titleAr} - ${activeBox.files.length} ملف`,
+                        url: getBoxDirectUrl(activeBox.id),
+                      }).catch(() => {});
+                    } else {
+                      handleCopyBoxUrl(activeBox.id);
+                    }
+                  }}
+                  className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="مشاركة أو نسخ الرابط"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>مشاركة</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOpenedViaQrBanner(null)}
+                  className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer transition-colors"
+                  aria-label="إغلاق التنبيه"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -859,15 +1188,26 @@ export function App() {
                 </div>
               </section>
 
-              {/* Complete Directory Grid of Boxes 1 - 13 */}
+              {/* Complete Directory Grid of Boxes 1 - N */}
               <section className="space-y-3.5">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">
-                    دليل الصناديق المؤرشفة ({yearFilteredBoxes.length} صندوق)
-                  </h2>
-                  <span className="text-xs text-slate-500">
-                    مرتبة حسب أرقام الصناديق الرسمية بدون أي خلط
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">
+                      دليل الصناديق المؤرشفة ({yearFilteredBoxes.length} صندوق)
+                    </h2>
+                    <span className="text-xs text-slate-500">
+                      مرتبة حسب أرقام الصناديق الرسمية والجديدة
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateBoxModalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ إنشاء صندوق جديد</span>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -926,6 +1266,16 @@ export function App() {
                             aria-label={`طباعة ملصق ${box.titleAr}`}
                           >
                             <Printer className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setBoxToEdit(box)}
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-amber-50 text-slate-600 hover:text-amber-600 cursor-pointer"
+                            title="تحرير بيانات الصندوق"
+                            aria-label={`تحرير بيانات ${box.titleAr}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
                           </button>
 
                           <button
@@ -1003,8 +1353,8 @@ export function App() {
                     aria-label="تصفية حسب الصندوق"
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-800 focus:bg-white focus:outline-none focus:border-blue-600"
                   >
-                    <option value="all">كل الصناديق (1 إلى 13)</option>
-                    {ARCHIVE_BOXES.map((b) => (
+                    <option value="all">كل الصناديق ({boxes.length} صندوق)</option>
+                    {boxes.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.titleAr} ({b.files.length} ملف)
                       </option>
@@ -1022,7 +1372,7 @@ export function App() {
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono-num text-slate-800 focus:bg-white focus:outline-none focus:border-blue-600"
                   >
                     <option value="all">كل السنوات</option>
-                    {AVAILABLE_YEARS.map((y) => (
+                    {dynamicYears.map((y) => (
                       <option key={y} value={y}>
                         سنة {y}
                       </option>
@@ -1167,18 +1517,30 @@ export function App() {
              ========================================================= */}
           {activeSection === 'boxes' && (
             <div className="space-y-5">
-              {/* Box Selector Strip (1 to 13) */}
-              <div className="bg-white border border-slate-200 rounded-xl p-3.5">
-                <div className="flex items-center justify-between mb-2.5 px-1">
-                  <span className="text-xs font-semibold text-slate-600">
-                    اختر الصندوق لاستعراض محتوياته الكاملة (الصناديق 1 إلى 13):
-                  </span>
-                  <span className="text-xs text-slate-400 font-mono-num">
-                    إجمالي 13 صندوق · 291 ملف
-                  </span>
+              {/* Box Selector Strip (1 to N) */}
+              <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-800">
+                      اختر الصندوق لاستعراض محتوياته الكاملة (الصناديق 1 إلى {boxes.length}):
+                    </span>
+                    <span className="text-xs text-slate-400 font-mono-num">
+                      إجمالي {boxes.length} صندوق · {allFlattenedRecords.length} ملف
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateBoxModalOpen(true)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ إنشاء صندوق جديد</span>
+                  </button>
                 </div>
+
                 <div className="flex flex-wrap gap-2">
-                  {ARCHIVE_BOXES.map((box) => {
+                  {boxes.map((box) => {
                     const isCurrent = box.id === activeBox.id;
                     const inYear = yearFilter === 'all' || box.years.includes(yearFilter);
                     return (
@@ -1228,8 +1590,45 @@ export function App() {
                     </p>
                   </div>
 
-                  {/* Actions for Active Box */}
+                  {/* Actions for Active Box: Batch Add, Single Add, Edit Box, QR, Print */}
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddSingleModalOpen(true)}
+                      className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>+ إضافة مورد واحد</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsBatchAddModalOpen(true)}
+                      className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                    >
+                      <ClipboardPaste className="w-4 h-4" />
+                      <span>+ إضافة موردين بالنسخ</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setBoxToEdit(activeBox)}
+                      className="px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-amber-700" />
+                      <span>تحرير الصندوق</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRenumberFiles(activeBox.id)}
+                      className="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      title="إعادة ترقيم ملفات الصندوق تسلسلياً (1 إلى N)"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                      <span>إعادة الترقيم</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => setQrModalBox(activeBox)}
@@ -1242,19 +1641,19 @@ export function App() {
                     <button
                       type="button"
                       onClick={() => triggerPrint('single-sticker', activeBox.id)}
-                      className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-2 cursor-pointer whitespace-nowrap"
+                      className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold flex items-center gap-2 cursor-pointer whitespace-nowrap"
                     >
                       <Printer className="w-4 h-4" />
-                      <span>طباعة ملصق الصندوق</span>
+                      <span>طباعة الملصق</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => triggerPrint('box-manifest', activeBox.id)}
-                      className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-2 cursor-pointer whitespace-nowrap"
+                      className="px-3.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-semibold flex items-center gap-2 cursor-pointer whitespace-nowrap"
                     >
                       <FileText className="w-4 h-4" />
-                      <span>طباعة كشف المحتويات</span>
+                      <span>كشف المحتويات</span>
                     </button>
                   </div>
                 </div>
@@ -1321,31 +1720,67 @@ export function App() {
                   </div>
                 </div>
 
-                {/* Count & Export Row */}
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span>
-                    المعروض حالياً:{' '}
-                    <strong className="font-mono-num text-slate-900">{boxViewRecords.length}</strong>{' '}
-                    ملف
-                    {intraSearchScope === 'same-year'
-                      ? ` عبر جميع صناديق سنة ${
-                          yearFilter !== 'all' ? yearFilter : activeBox.primaryYear
-                        }`
-                      : ` من إجمالي ${activeBox.files.length} ملف في ${activeBox.titleAr}`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleExportCsv(boxViewRecords, `${activeBox.code}_Manifest.csv`)
-                    }
-                    className="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>تصدير الجدول CSV</span>
-                  </button>
+                {/* Count & Export & Mobile View Switcher Row */}
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500 pb-1">
+                  <div className="flex items-center gap-2">
+                    <span>
+                      المعروض حالياً:{' '}
+                      <strong className="font-mono-num text-slate-900">{boxViewRecords.length}</strong>{' '}
+                      ملف
+                      {intraSearchScope === 'same-year'
+                        ? ` عبر جميع صناديق سنة ${
+                            yearFilter !== 'all' ? yearFilter : activeBox.primaryYear
+                          }`
+                        : ` في ${activeBox.titleAr}`}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* View mode switcher: Cards (Mobile/Tablet) vs Table (Desktop) */}
+                    <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setBoxViewMode('cards')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          boxViewMode === 'cards'
+                            ? 'bg-white text-blue-700 shadow-2xs font-extrabold'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                        title="عرض البطاقات الذكية المحسنة للهواتف والأجهزة اللوحية"
+                      >
+                        <Smartphone className="w-3.5 h-3.5" />
+                        <span>بطاقات الهواتف</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBoxViewMode('table')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          boxViewMode === 'table'
+                            ? 'bg-white text-blue-700 shadow-2xs font-extrabold'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                        title="عرض الجدول المكتبي الكامل"
+                      >
+                        <List className="w-3.5 h-3.5" />
+                        <span>جدول كامل</span>
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleExportCsv(boxViewRecords, `${activeBox.code}_Manifest.csv`)
+                      }
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-blue-600 font-medium flex items-center gap-1 cursor-pointer"
+                      title="تصدير السجلات كملف CSV"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">تصدير CSV</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Box Manifest Table */}
+                {/* Box Manifest: Empty State */}
                 {boxViewRecords.length === 0 ? (
                   <div className="py-12 text-center bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
                     <p className="text-sm font-semibold text-slate-700">
@@ -1362,7 +1797,161 @@ export function App() {
                       </button>
                     )}
                   </div>
+                ) : boxViewMode === 'cards' ? (
+                  /* =========================================================
+                     1. MOBILE & TABLET OPTIMIZED CARDS VIEW
+                     High-contrast, large touch targets, no horizontal scroll
+                     ========================================================= */
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                    {boxViewRecords.map((row) => {
+                      const isHighlighted =
+                        intraSearchScope === 'current-box' && highlightedFileNo === row.fileNo;
+                      return (
+                        <div
+                          key={`${row.boxId}-${row.fileNo}`}
+                          className={`bg-white rounded-2xl border transition-all p-4 space-y-3 relative flex flex-col justify-between ${
+                            isHighlighted
+                              ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 shadow-md'
+                              : 'border-slate-200 hover:border-blue-300 hover:shadow-xs'
+                          }`}
+                        >
+                          {/* Card Header Strip */}
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 font-bold text-xs font-mono-num border border-blue-200/60 shadow-2xs">
+                                {row.envelopeLabel}
+                              </span>
+                              {intraSearchScope === 'same-year' && (
+                                <button
+                                  type="button"
+                                  onClick={() => navigateToBox(row.boxId, row.fileNo)}
+                                  className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded hover:bg-blue-100 hover:text-blue-700 transition-colors"
+                                >
+                                  {row.boxTitle}
+                                </button>
+                              )}
+                              <span className="text-[11px] font-mono-num text-slate-400">
+                                ملف #{row.fileNo}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <span className="text-[11px] font-mono-num font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                                {row.year}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setRecordToEdit({
+                                    boxId: row.boxId,
+                                    boxTitle: row.boxTitle,
+                                    record: {
+                                      fileNo: row.fileNo,
+                                      envelopeLabel: row.envelopeLabel,
+                                      supplierName: row.supplierName,
+                                      docNo: row.docNo,
+                                      checkNo: row.checkNo,
+                                      year: row.year,
+                                      notes: row.notes,
+                                    },
+                                  })
+                                }
+                                title="تعديل هذا المورد"
+                                className="w-8 h-8 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 flex items-center justify-center transition-colors cursor-pointer"
+                                aria-label={`تعديل ${row.supplierName}`}
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRecord(row.boxId, row.fileNo)}
+                                title="حذف من الصندوق"
+                                className="w-8 h-8 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors cursor-pointer"
+                                aria-label={`حذف ${row.supplierName}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Supplier Name - Bold & High Contrast for Handheld Screens */}
+                          <div className="space-y-1">
+                            <span className="text-[11px] text-slate-400 font-medium block">
+                              اسم المورد / الشركة:
+                            </span>
+                            <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900 leading-snug">
+                              {row.supplierName}
+                            </h2>
+                          </div>
+
+                          {/* Document and Check Badges with 1-Tap Copy */}
+                          <div className="grid grid-cols-2 gap-2 pt-1">
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 flex items-center justify-between gap-1.5">
+                              <div className="min-w-0">
+                                <span className="text-[10px] text-slate-400 block font-semibold">
+                                  رقم المستند
+                                </span>
+                                <span className="font-mono-num text-xs font-bold text-blue-800 truncate block">
+                                  {row.docNo}
+                                </span>
+                              </div>
+                              {row.docNo !== '—' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(row.docNo);
+                                    showToast(`تم نسخ رقم المستند: ${row.docNo}`);
+                                  }}
+                                  className="text-slate-400 hover:text-blue-700 p-1 cursor-pointer rounded hover:bg-blue-50"
+                                  title="نسخ رقم المستند"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 flex items-center justify-between gap-1.5">
+                              <div className="min-w-0">
+                                <span className="text-[10px] text-slate-400 block font-semibold">
+                                  رقم الشيك
+                                </span>
+                                <span className="font-mono-num text-xs font-bold text-slate-800 truncate block">
+                                  {row.checkNo}
+                                </span>
+                              </div>
+                              {row.checkNo !== '—' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(row.checkNo);
+                                    showToast(`تم نسخ رقم الشيك: ${row.checkNo}`);
+                                  }}
+                                  className="text-slate-400 hover:text-slate-800 p-1 cursor-pointer rounded hover:bg-slate-200/60"
+                                  title="نسخ رقم الشيك"
+                                >
+                                  <Copy className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Notes */}
+                          {row.notes && row.notes !== '—' && (
+                            <div className="text-xs text-slate-600 bg-amber-50/60 border border-amber-200/60 rounded-xl px-3 py-2 flex items-start gap-2">
+                              <span className="text-amber-800 font-bold text-[11px] shrink-0">
+                                ملاحظات:
+                              </span>
+                              <span className="leading-relaxed line-clamp-2">{row.notes}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : (
+                  /* =========================================================
+                     2. FULL DESKTOP TABLE VIEW
+                     ========================================================= */
                   <div className="overflow-x-auto border border-slate-200 rounded-xl">
                     <table className="w-full text-right text-sm">
                       <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-600">
@@ -1385,6 +1974,7 @@ export function App() {
                           </th>
                           <th className="px-4 py-3 font-semibold whitespace-nowrap">السنة</th>
                           <th className="px-4 py-3 font-semibold">ملاحظات وتفاصيل إضافية</th>
+                          <th className="px-3 py-3 font-semibold text-center w-24 whitespace-nowrap">إجراءات</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1431,6 +2021,40 @@ export function App() {
                                 {row.year}
                               </td>
                               <td className="px-4 py-2.5 text-xs text-slate-500">{row.notes}</td>
+                              <td className="px-3 py-2 text-center whitespace-nowrap">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRecordToEdit({
+                                        boxId: row.boxId,
+                                        boxTitle: row.boxTitle,
+                                        record: {
+                                          fileNo: row.fileNo,
+                                          envelopeLabel: row.envelopeLabel,
+                                          supplierName: row.supplierName,
+                                          docNo: row.docNo,
+                                          checkNo: row.checkNo,
+                                          year: row.year,
+                                          notes: row.notes,
+                                        },
+                                      })
+                                    }
+                                    title="تعديل بيانات هذا المورد"
+                                    className="w-7 h-7 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 flex items-center justify-center transition-colors cursor-pointer"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteRecord(row.boxId, row.fileNo)}
+                                    title="حذف هذا المورد من الصندوق"
+                                    className="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
                             </tr>
                           );
                         })}
@@ -1614,6 +2238,53 @@ export function App() {
         getBoxUrl={getBoxDirectUrl}
         onPrintSingle={(boxId) => triggerPrint('single-sticker', boxId)}
         onOpenBox={(boxId) => navigateToBox(boxId)}
+      />
+
+      {/* Create New Box Modal with Smart Paste */}
+      <CreateBoxModal
+        isOpen={isCreateBoxModalOpen}
+        onClose={() => setIsCreateBoxModalOpen(false)}
+        nextBoxId={nextBoxId}
+        onCreateBox={handleCreateBox}
+      />
+
+      {/* Batch Add Suppliers to Active Box Modal */}
+      <BatchAddSuppliersModal
+        isOpen={isBatchAddModalOpen}
+        onClose={() => setIsBatchAddModalOpen(false)}
+        targetBox={activeBox}
+        onAddSuppliers={handleBatchAddSuppliers}
+      />
+
+      {/* Edit Box Metadata Modal */}
+      <EditBoxModal
+        isOpen={boxToEdit !== null}
+        onClose={() => setBoxToEdit(null)}
+        box={boxToEdit}
+        onSave={handleUpdateBox}
+        onDelete={handleDeleteBox}
+        totalBoxesCount={boxes.length}
+      />
+
+      {/* Edit File / Supplier Record Modal */}
+      <EditFileRecordModal
+        isOpen={recordToEdit !== null}
+        onClose={() => setRecordToEdit(null)}
+        record={recordToEdit?.record || null}
+        boxTitle={recordToEdit?.boxTitle || ''}
+        onSave={(updated) => {
+          if (recordToEdit) {
+            handleUpdateRecord(recordToEdit.boxId, updated);
+          }
+        }}
+      />
+
+      {/* Add Single Supplier Modal */}
+      <AddSingleSupplierModal
+        isOpen={isAddSingleModalOpen}
+        onClose={() => setIsAddSingleModalOpen(false)}
+        targetBox={activeBox}
+        onAdd={(newRec) => handleAddSingleRecord(activeBox.id, newRec)}
       />
 
       {/* Dedicated Print Media Surface */}

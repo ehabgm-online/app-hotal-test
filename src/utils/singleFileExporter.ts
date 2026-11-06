@@ -1,7 +1,11 @@
-import { ARCHIVE_BOXES } from '../data/archiveData';
+import { ARCHIVE_BOXES, ArchiveBox } from '../data/archiveData';
 
-export function buildStandaloneSingleFileHtml(baseUrl: string): string {
-  const boxesJson = JSON.stringify(ARCHIVE_BOXES);
+export function buildStandaloneSingleFileHtml(
+  baseUrl: string,
+  customBoxes?: ArchiveBox[]
+): string {
+  const data = customBoxes && customBoxes.length > 0 ? customBoxes : ARCHIVE_BOXES;
+  const boxesJson = JSON.stringify(data);
   const safeBaseUrl = baseUrl.replace(/[?#].*$/, '');
 
   return `<!DOCTYPE html>
@@ -70,6 +74,9 @@ export function buildStandaloneSingleFileHtml(baseUrl: string): string {
           <option value="2019">2019</option>
           <option value="2021">2021</option>
         </select>
+        <button onclick="openCreateBoxDialog()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-sm">
+          <i class="fa-solid fa-plus"></i><span>+ إنشاء صندوق جديد</span>
+        </button>
         <button onclick="printLabels('all')" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3.5 py-2 rounded-lg flex items-center gap-2">
           <i class="fa-solid fa-print"></i><span>طباعة كل الملصقات</span>
         </button>
@@ -78,16 +85,228 @@ export function buildStandaloneSingleFileHtml(baseUrl: string): string {
 
     <main class="no-print p-6 flex-1 space-y-6 max-w-7xl w-full mx-auto" id="app-content"></main>
     <div id="print-container" class="hidden print-area p-4"></div>
+    <div id="modal-container" class="no-print"></div>
   </div>
 
   <script>
-    const BOXES = ${boxesJson};
+    let BOXES = ${boxesJson};
+    try {
+      const local = localStorage.getItem('smart_docs_boxes_data_v1');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) BOXES = parsed;
+      }
+    } catch(e) {}
+
     const BASE_URL = ${JSON.stringify(safeBaseUrl)};
     let currentTab = 'dashboard';
     let selectedYear = 'all';
     let activeBoxId = 1;
     let globalQuery = '';
     let boxQuery = '';
+
+    function saveBoxesToStorage() {
+      try {
+        localStorage.setItem('smart_docs_boxes_data_v1', JSON.stringify(BOXES));
+      } catch(e) {}
+    }
+
+    function parseSuppliersText(text) {
+      const lines = text.split(/\\r?\\n/).map(l => l.trim()).filter(l => l.length > 0);
+      const rows = [];
+      for (const line of lines) {
+        if (line.includes('\\t')) {
+          const p = line.split('\\t').map(x => x.trim());
+          rows.push({ supplierName: p[0]||'', docNo: p[1]||'—', checkNo: p[2]||'—', notes: p.slice(3).join(' · ')||'' });
+        } else if (line.includes(',') && !line.startsWith('"')) {
+          const p = line.split(',').map(x => x.trim());
+          rows.push({ supplierName: p[0]||'', docNo: p[1]||'—', checkNo: p[2]||'—', notes: p.slice(3).join(' · ')||'' });
+        } else if (line.includes(' | ') || line.includes(' - ')) {
+          const sep = line.includes(' | ') ? ' | ' : ' - ';
+          const p = line.split(sep).map(x => x.trim());
+          rows.push({ supplierName: p[0]||'', docNo: p[1]||'—', checkNo: p[2]||'—', notes: p.slice(3).join(' · ')||'' });
+        } else {
+          rows.push({ supplierName: line, docNo: '—', checkNo: '—', notes: '' });
+        }
+      }
+      return rows.filter(r => r.supplierName.trim().length > 0);
+    }
+
+    function openCreateBoxDialog() {
+      const nextId = BOXES.reduce((m, b) => Math.max(m, b.id), 0) + 1;
+      const yr = new Date().getFullYear();
+      const mc = document.getElementById('modal-container');
+      mc.innerHTML = \`
+        <div class="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4">
+          <div class="bg-white rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl" dir="rtl">
+            <div class="flex items-center justify-between border-b pb-3">
+              <h3 class="font-bold text-lg text-slate-900">إنشاء صندوق جديد مع لصق الموردين</h3>
+              <button onclick="document.getElementById('modal-container').innerHTML=''" class="text-slate-400 hover:text-slate-900"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+              <div><label class="font-semibold block mb-1">رقم الصندوق:</label><input id="new-box-num" type="number" value="\${nextId}" class="w-full border p-2 rounded" /></div>
+              <div><label class="font-semibold block mb-1">السنة المالية:</label><input id="new-box-year" type="number" value="\${yr}" class="w-full border p-2 rounded" /></div>
+            </div>
+            <div class="text-xs">
+              <label class="font-semibold block mb-1">اسم الصندوق:</label>
+              <input id="new-box-title" type="text" value="صندوق \${nextId}" class="w-full border p-2 rounded font-bold" />
+            </div>
+            <div class="text-xs">
+              <label class="font-semibold block mb-1">نطاق التصنيف أو الوصف:</label>
+              <input id="new-box-scope" type="text" value="موردين وشركات وتوريدات" class="w-full border p-2 rounded" />
+            </div>
+            <div class="text-xs space-y-1.5 bg-blue-50 p-3 rounded-xl border border-blue-200">
+              <label class="font-bold text-blue-950 block">انسخ الموردين من الإكسيل أو النص والصقهم هنا:</label>
+              <textarea id="new-box-paste" rows="5" class="w-full p-2.5 border rounded bg-white font-mono text-xs" placeholder="الصق أسماء الموردين هنا... (اسم لكل سطر أو أعمدة إكسيل مفصولة بـ Tab)"></textarea>
+            </div>
+            <div class="flex justify-end gap-2 pt-2 border-t">
+              <button onclick="document.getElementById('modal-container').innerHTML=''" class="px-4 py-2 border rounded text-xs font-semibold">إلغاء</button>
+              <button onclick="saveNewBox()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold">حفظ وإنشاء الصندوق</button>
+            </div>
+          </div>
+        </div>
+      \`;
+    }
+
+    function saveNewBox() {
+      const id = Number(document.getElementById('new-box-num').value) || (BOXES.length + 1);
+      const year = Number(document.getElementById('new-box-year').value) || 2024;
+      const title = document.getElementById('new-box-title').value || ('صندوق ' + id);
+      const scope = document.getElementById('new-box-scope').value || 'مستندات وتوريدات';
+      const text = document.getElementById('new-box-paste').value || '';
+      const parsed = parseSuppliersText(text);
+
+      const files = parsed.map((p, i) => ({
+        fileNo: i + 1,
+        envelopeLabel: 'الظرف ' + (i + 1),
+        supplierName: p.supplierName,
+        docNo: p.docNo || '—',
+        checkNo: p.checkNo || '—',
+        year: year,
+        notes: p.notes || title
+      }));
+
+      const newBox = {
+        id: id,
+        code: 'BOX-' + String(id).padStart(2, '0'),
+        barcodeValue: 'ARC-' + year + '-BOX' + String(id).padStart(2, '0'),
+        titleAr: title,
+        subtitleAr: 'بيانات الموردين والملفات المؤرشفة',
+        primaryYear: year,
+        years: [year],
+        categoryScope: scope,
+        files: files
+      };
+
+      BOXES.push(newBox);
+      saveBoxesToStorage();
+      document.getElementById('modal-container').innerHTML = '';
+      switchTab('boxes', id);
+    }
+
+    function openBatchAddDialog(boxId) {
+      const box = BOXES.find(b => b.id === Number(boxId));
+      if (!box) return;
+      const mc = document.getElementById('modal-container');
+      mc.innerHTML = \`
+        <div class="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4">
+          <div class="bg-white rounded-2xl p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl" dir="rtl">
+            <div class="flex items-center justify-between border-b pb-3">
+              <h3 class="font-bold text-lg text-slate-900">إضافة موردين بالنسخ واللصق إلى \${box.titleAr}</h3>
+              <button onclick="document.getElementById('modal-container').innerHTML=''" class="text-slate-400 hover:text-slate-900"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="text-xs space-y-1.5">
+              <label class="font-bold text-slate-800 block">انسخ أسماء الموردين من الإكسيل ثم الصقهم هنا:</label>
+              <textarea id="batch-add-paste" rows="6" class="w-full p-2.5 border rounded bg-slate-50 font-mono text-xs" placeholder="الصق الموردين هنا..."></textarea>
+            </div>
+            <div class="flex justify-end gap-2 pt-2 border-t">
+              <button onclick="document.getElementById('modal-container').innerHTML=''" class="px-4 py-2 border rounded text-xs font-semibold">إلغاء</button>
+              <button onclick="saveBatchSuppliers(\${box.id})" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold">تأكيد الإضافة</button>
+            </div>
+          </div>
+        </div>
+      \`;
+    }
+
+    function saveBatchSuppliers(boxId) {
+      const box = BOXES.find(b => b.id === Number(boxId));
+      if (!box) return;
+      const text = document.getElementById('batch-add-paste').value || '';
+      const parsed = parseSuppliersText(text);
+      if (parsed.length === 0) return;
+      const start = box.files.length;
+      parsed.forEach((p, i) => {
+        box.files.push({
+          fileNo: start + i + 1,
+          envelopeLabel: 'الظرف ' + (start + i + 1),
+          supplierName: p.supplierName,
+          docNo: p.docNo || '—',
+          checkNo: p.checkNo || '—',
+          year: box.primaryYear,
+          notes: p.notes || box.titleAr
+        });
+      });
+      saveBoxesToStorage();
+      document.getElementById('modal-container').innerHTML = '';
+      render();
+    }
+
+    function openEditBoxDialog(boxId) {
+      const box = BOXES.find(b => b.id === Number(boxId));
+      if (!box) return;
+      const mc = document.getElementById('modal-container');
+      mc.innerHTML = \`
+        <div class="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4">
+          <div class="bg-white rounded-2xl p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl" dir="rtl">
+            <div class="flex items-center justify-between border-b pb-3">
+              <h3 class="font-bold text-lg text-slate-900">تحرير بيانات \${box.titleAr}</h3>
+              <button onclick="document.getElementById('modal-container').innerHTML=''" class="text-slate-400 hover:text-slate-900"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+              <div><label class="font-semibold block mb-1">اسم الصندوق:</label><input id="edit-box-title" type="text" value="\${box.titleAr}" class="w-full border p-2 rounded font-bold" /></div>
+              <div><label class="font-semibold block mb-1">السنة المالية:</label><input id="edit-box-year" type="number" value="\${box.primaryYear}" class="w-full border p-2 rounded" /></div>
+            </div>
+            <div class="text-xs">
+              <label class="font-semibold block mb-1">العنوان الفرعي / الوصف:</label>
+              <input id="edit-box-sub" type="text" value="\${box.subtitleAr}" class="w-full border p-2 rounded" />
+            </div>
+            <div class="text-xs">
+              <label class="font-semibold block mb-1">التصنيف:</label>
+              <input id="edit-box-cat" type="text" value="\${box.categoryScope}" class="w-full border p-2 rounded" />
+            </div>
+            <div class="flex items-center justify-between pt-3 border-t">
+              <button onclick="if(confirm('هل أنت متأكد من حذف هذا الصندوق؟')){BOXES=BOXES.filter(b=>b.id!==\${box.id});saveBoxesToStorage();document.getElementById('modal-container').innerHTML='';switchTab('boxes',BOXES[0]?BOXES[0].id:1);}" class="text-xs text-rose-600 hover:text-rose-800 font-bold">حذف الصندوق</button>
+              <div class="flex gap-2">
+                <button onclick="document.getElementById('modal-container').innerHTML=''" class="px-4 py-2 border rounded text-xs font-semibold">إلغاء</button>
+                <button onclick="saveBoxEdit(\${box.id})" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold">حفظ التعديلات</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      \`;
+    }
+
+    function saveBoxEdit(boxId) {
+      const box = BOXES.find(b => b.id === Number(boxId));
+      if (!box) return;
+      box.titleAr = document.getElementById('edit-box-title').value.trim() || box.titleAr;
+      box.primaryYear = Number(document.getElementById('edit-box-year').value) || box.primaryYear;
+      box.years = [box.primaryYear];
+      box.subtitleAr = document.getElementById('edit-box-sub').value.trim() || box.subtitleAr;
+      box.categoryScope = document.getElementById('edit-box-cat').value.trim() || box.categoryScope;
+      saveBoxesToStorage();
+      document.getElementById('modal-container').innerHTML = '';
+      render();
+    }
+
+    function deleteSupplierRow(boxId, fileNo) {
+      const box = BOXES.find(b => b.id === Number(boxId));
+      if (!box) return;
+      if (!confirm('هل تريد حذف هذا المورد من الصندوق؟')) return;
+      box.files = box.files.filter(f => f.fileNo !== Number(fileNo));
+      saveBoxesToStorage();
+      render();
+    }
 
     const CODE128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
 
@@ -317,15 +536,48 @@ export function buildStandaloneSingleFileHtml(baseUrl: string): string {
                 <p class="text-xs text-slate-500 mt-1">\${box.categoryScope} · الكود: <span class="mono">\${box.barcodeValue}</span> · إجمالي الملفات: <span class="mono font-semibold">\${box.files.length}</span></p>
               </div>
               <div class="flex items-center gap-2">
-                <button onclick="switchTab('qrcodes', \${box.id})" class="px-3.5 py-2 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-2"><i class="fa-solid fa-qrcode"></i><span>رمز QR والباركود</span></button>
-                <button onclick="printLabels(\${box.id})" class="px-3.5 py-2 text-xs bg-slate-900 text-white rounded-lg hover:bg-slate-800 flex items-center gap-2"><i class="fa-solid fa-print"></i><span>طباعة ملصق الصندوق</span></button>
+                <button onclick="openEditBoxDialog(\${box.id})" class="px-3 py-2 text-xs border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold rounded-lg flex items-center gap-1.5"><i class="fa-solid fa-pen"></i><span>تحرير الصندوق</span></button>
+                <button onclick="openBatchAddDialog(\${box.id})" class="px-3 py-2 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg flex items-center gap-1.5 shadow-sm"><i class="fa-solid fa-paste"></i><span>+ إضافة موردين بالنسخ</span></button>
+                <button onclick="switchTab('qrcodes', \${box.id})" class="px-3 py-2 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-1.5"><i class="fa-solid fa-qrcode"></i><span>رمز QR والباركود</span></button>
+                <button onclick="printLabels(\${box.id})" class="px-3 py-2 text-xs bg-slate-900 text-white rounded-lg hover:bg-slate-800 flex items-center gap-1.5"><i class="fa-solid fa-print"></i><span>طباعة ملصق الصندوق</span></button>
               </div>
             </div>
             <div class="relative">
               <i class="fa-solid fa-magnifying-glass absolute right-3.5 top-3 text-slate-400 text-sm"></i>
               <input id="box-search" type="text" value="\${boxQuery}" oninput="boxQuery=this.value;render();const inp=document.getElementById('box-search');inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);" placeholder="ابحث داخل \${box.titleAr} عن اسم المورد أو رقم المستند..." class="w-full pr-10 pl-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-600" />
             </div>
-            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <!-- Mobile Cards View for Phones & Tablets -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 md:hidden">
+              \${rows.map(r => \`
+                <div class="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2.5 shadow-xs">
+                  <div class="flex items-center justify-between border-b pb-2">
+                    <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold text-xs mono">\${r.envelopeLabel}</span>
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-[11px] mono text-slate-500">\${r.checkNo !== '—' ? r.checkNo : r.year}</span>
+                      <button onclick="deleteSupplierRow(\${box.id}, \${r.fileNo})" class="text-rose-600 hover:text-rose-800 p-1" title="حذف"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="text-[10px] text-slate-400 block font-semibold">اسم المورد:</span>
+                    <h4 class="font-bold text-base text-slate-900 leading-snug">\${r.supplierName}</h4>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div class="bg-slate-50 p-2 rounded border border-slate-100">
+                      <span class="text-[10px] text-slate-400 block font-medium">المستند</span>
+                      <span class="mono font-bold text-blue-700">\${r.docNo}</span>
+                    </div>
+                    <div class="bg-slate-50 p-2 rounded border border-slate-100">
+                      <span class="text-[10px] text-slate-400 block font-medium">الشيك / السنة</span>
+                      <span class="mono font-bold text-slate-800">\${r.checkNo !== '—' ? r.checkNo : r.year}</span>
+                    </div>
+                  </div>
+                  \${r.notes && r.notes !== '—' ? \`<div class="text-[11px] text-slate-600 bg-amber-50/70 p-1.5 rounded">\${r.notes}</div>\` : ''}
+                </div>
+              \`).join('')}
+            </div>
+
+            <!-- Desktop Full Table -->
+            <div class="hidden md:block overflow-x-auto border border-slate-200 rounded-xl">
               <table class="w-full text-right text-sm">
                 <thead class="bg-slate-50 border-b border-slate-200 text-xs text-slate-600">
                   <tr>
@@ -335,6 +587,7 @@ export function buildStandaloneSingleFileHtml(baseUrl: string): string {
                     <th class="px-4 py-3">رقم المستند</th>
                     <th class="px-4 py-3">رقم الشيك / السنة</th>
                     <th class="px-4 py-3">ملاحظات وتفاصيل</th>
+                    <th class="px-3 py-3 text-center">حذف</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -346,6 +599,7 @@ export function buildStandaloneSingleFileHtml(baseUrl: string): string {
                       <td class="px-4 py-2.5 mono text-xs text-blue-700">\${r.docNo}</td>
                       <td class="px-4 py-2.5 mono text-xs text-slate-700">\${r.checkNo !== '—' ? r.checkNo : r.year}</td>
                       <td class="px-4 py-2.5 text-xs text-slate-500">\${r.notes}</td>
+                      <td class="px-3 py-2.5 text-center"><button onclick="deleteSupplierRow(\${box.id}, \${r.fileNo})" class="text-rose-600 hover:text-rose-800 p-1" title="حذف المورد"><i class="fa-solid fa-trash"></i></button></td>
                     </tr>
                   \`).join('')}
                 </tbody>
@@ -401,13 +655,13 @@ export function buildStandaloneSingleFileHtml(baseUrl: string): string {
 </html>`;
 }
 
-export function downloadStandaloneHtml(): void {
-  const html = buildStandaloneSingleFileHtml(window.location.href);
+export function downloadStandaloneHtml(customBoxes?: ArchiveBox[]): void {
+  const html = buildStandaloneSingleFileHtml(window.location.href, customBoxes);
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = 'Smart_Docs_EArchive_Boxes_1_to_13.html';
+  anchor.download = 'Smart_Docs_EArchive_Master.html';
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
