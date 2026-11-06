@@ -1,0 +1,6 @@
+{
+  "name": "Smart Docs E-Archive | نظام الأرشفة الذكي للصناديق",
+  "description": "نظام متكامل لإدارة وأرشفة صناديق المستندات والموردين (الصناديق 1 إلى 13) مع البحث الذكي وتوليد رموز QR والباركود للطباعة.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
