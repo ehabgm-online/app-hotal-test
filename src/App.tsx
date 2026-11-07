@@ -687,24 +687,44 @@ export function App() {
             <Boxes className="w-4 h-4 text-blue-400" />
             <span className="text-[11px]">تبديل الصندوق:</span>
           </div>
-          <select
-            value={activeBox.id}
-            onChange={(e) => {
-              const newId = Number(e.target.value);
-              setSelectedBoxId(newId);
-              setIntraBoxQuery('');
-              const url = new URL(window.location.href);
-              url.searchParams.set('box', String(newId));
-              window.history.replaceState({}, '', url.toString());
-            }}
-            className="bg-slate-800 text-white border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
-          >
-            {boxes.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.titleAr} ({b.files.length} ملف)
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const boxRecords = activeBox.files.map((f) => ({
+                  ...f,
+                  boxId: activeBox.id,
+                  boxCode: activeBox.code,
+                  boxTitle: activeBox.titleAr,
+                  boxCategory: activeBox.categoryScope,
+                }));
+                handleExportCsv(boxRecords, `${activeBox.code}_Suppliers.csv`);
+              }}
+              className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+              title="تصدير شيت إكسيل / CSV لأسماء الموردين في هذا الصندوق"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <span>تصدير إكسيل (CSV)</span>
+            </button>
+            <select
+              value={activeBox.id}
+              onChange={(e) => {
+                const newId = Number(e.target.value);
+                setSelectedBoxId(newId);
+                setIntraBoxQuery('');
+                const url = new URL(window.location.href);
+                url.searchParams.set('box', String(newId));
+                window.history.replaceState({}, '', url.toString());
+              }}
+              className="bg-slate-800 text-white border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
+            >
+              {boxes.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.titleAr} ({b.files.length} ملف)
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Sticky Search Field for Instant Warehouse Lookup */}
