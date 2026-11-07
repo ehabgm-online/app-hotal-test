@@ -51,6 +51,7 @@ import {
   EditFileRecordModal,
 } from './components/BoxEditorModals';
 import { downloadStandaloneHtml } from './utils/singleFileExporter';
+import { matchesBilingual, getSupplierBilingualInfo } from './utils/bilingualSearch';
 
 type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'qrcodes';
 type YearFilter = 'all' | number;
@@ -127,6 +128,18 @@ export function App() {
       setToastMessage((prev) => (prev === msg ? null : prev));
     }, 2800);
   };
+
+  // Lock body scroll when mobile sidebar drawer is open to prevent overlapping scrolling
+  useEffect(() => {
+    if (mobileSidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileSidebarOpen]);
 
   // Next recommended box ID for creation
   const nextBoxId = useMemo(() => {
@@ -386,36 +399,36 @@ export function App() {
     return boxes.find((b) => b.id === printTargetBoxId) || activeBox;
   }, [boxes, printTargetBoxId, activeBox]);
 
-  // Global Smart Search results
+  // Global Smart Search results with Intelligent Bilingual (عربي ⇄ English) Support
   const smartSearchResults = useMemo<FlattenedRecord[]>(() => {
-    const q = normalizeArabicSearch(globalSearchQuery);
+    const q = globalSearchQuery.trim();
     return yearFilteredRecords.filter((rec) => {
       if (searchBoxFilter !== 'all' && rec.boxId !== searchBoxFilter) {
         return false;
       }
       if (!q) return true;
       return (
-        normalizeArabicSearch(rec.supplierName).includes(q) ||
-        normalizeArabicSearch(rec.docNo).includes(q) ||
-        normalizeArabicSearch(rec.checkNo).includes(q) ||
-        normalizeArabicSearch(rec.envelopeLabel).includes(q) ||
-        normalizeArabicSearch(rec.notes).includes(q) ||
-        normalizeArabicSearch(rec.boxTitle).includes(q) ||
-        normalizeArabicSearch(rec.boxCode).includes(q)
+        matchesBilingual(rec.supplierName, q) ||
+        matchesBilingual(rec.docNo, q) ||
+        matchesBilingual(rec.checkNo, q) ||
+        matchesBilingual(rec.envelopeLabel, q) ||
+        matchesBilingual(rec.notes, q) ||
+        matchesBilingual(rec.boxTitle, q) ||
+        matchesBilingual(rec.boxCode, q)
       );
     });
   }, [globalSearchQuery, yearFilteredRecords, searchBoxFilter]);
 
   // Dashboard inline preview search results (top 8 matches when typing on dashboard)
   const dashboardQuickResults = useMemo<FlattenedRecord[]>(() => {
-    const q = normalizeArabicSearch(globalSearchQuery);
+    const q = globalSearchQuery.trim();
     if (!q) return [];
     return smartSearchResults.slice(0, 8);
   }, [globalSearchQuery, smartSearchResults]);
 
   // Intra-box or Same-Year search inside Box Management view
   const boxViewRecords = useMemo<FlattenedRecord[]>(() => {
-    const q = normalizeArabicSearch(intraBoxQuery);
+    const q = intraBoxQuery.trim();
     const targetYear = yearFilter !== 'all' ? yearFilter : activeBox.primaryYear;
 
     const basePool: FlattenedRecord[] =
@@ -429,25 +442,25 @@ export function App() {
 
     return basePool.filter(
       (rec) =>
-        normalizeArabicSearch(rec.supplierName).includes(q) ||
-        normalizeArabicSearch(rec.docNo).includes(q) ||
-        normalizeArabicSearch(rec.checkNo).includes(q) ||
-        normalizeArabicSearch(rec.envelopeLabel).includes(q) ||
-        normalizeArabicSearch(rec.notes).includes(q)
+        matchesBilingual(rec.supplierName, q) ||
+        matchesBilingual(rec.docNo, q) ||
+        matchesBilingual(rec.checkNo, q) ||
+        matchesBilingual(rec.envelopeLabel, q) ||
+        matchesBilingual(rec.notes, q)
     );
   }, [intraBoxQuery, intraSearchScope, activeBox, allFlattenedRecords, yearFilter]);
 
   // Filtered records for the dedicated focused scan viewer (only this box + search)
   const focusedBoxRecords = useMemo(() => {
-    const q = normalizeArabicSearch(intraBoxQuery);
+    const q = intraBoxQuery.trim();
     if (!q) return activeBox.files;
     return activeBox.files.filter(
       (f) =>
-        normalizeArabicSearch(f.supplierName).includes(q) ||
-        normalizeArabicSearch(f.docNo).includes(q) ||
-        normalizeArabicSearch(f.checkNo).includes(q) ||
-        normalizeArabicSearch(f.envelopeLabel).includes(q) ||
-        normalizeArabicSearch(f.notes).includes(q)
+        matchesBilingual(f.supplierName, q) ||
+        matchesBilingual(f.docNo, q) ||
+        matchesBilingual(f.checkNo, q) ||
+        matchesBilingual(f.envelopeLabel, q) ||
+        matchesBilingual(f.notes, q)
     );
   }, [activeBox, intraBoxQuery]);
 
@@ -631,7 +644,7 @@ export function App() {
               type="text"
               value={intraBoxQuery}
               onChange={(e) => setIntraBoxQuery(e.target.value)}
-              placeholder={`ابحث داخل ${activeBox.titleAr} باسم المورد، السند، الشيك...`}
+              placeholder={`ابحث داخل ${activeBox.titleAr} بالعربي أو English (المورد، السند، الشيك)...`}
               className="w-full pl-9 pr-10 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             />
             {intraBoxQuery && (
@@ -691,7 +704,9 @@ export function App() {
               </div>
             </div>
           ) : (
-            focusedBoxRecords.map((file, idx) => (
+            focusedBoxRecords.map((file, idx) => {
+              const biInfo = getSupplierBilingualInfo(file.supplierName);
+              return (
               <div
                 key={file.fileNo}
                 className="bg-slate-900/90 hover:bg-slate-850 border border-slate-800 rounded-2xl p-3.5 transition-all shadow-xs"
@@ -701,9 +716,16 @@ export function App() {
                     <span className="w-7 h-7 rounded-lg bg-blue-600/30 text-blue-300 border border-blue-500/30 font-mono-num font-bold text-xs flex items-center justify-center shrink-0">
                       {idx + 1}
                     </span>
-                    <h3 className="font-display font-bold text-sm sm:text-base text-white leading-snug break-words">
-                      {file.supplierName}
-                    </h3>
+                    <div className="min-w-0">
+                      <h3 className="font-display font-bold text-sm sm:text-base text-white leading-snug break-words">
+                        {file.supplierName}
+                      </h3>
+                      {biInfo.secondary && (
+                        <div className="text-[11px] text-blue-300 font-semibold mt-0.5">
+                          {biInfo.secondary}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-amber-300 text-xs font-bold border border-amber-500/20 shrink-0 font-mono-num whitespace-nowrap">
                     {file.envelopeLabel}
@@ -759,7 +781,8 @@ export function App() {
                   </div>
                 )}
               </div>
-            ))
+              );
+            })
           )}
 
           {/* Bottom Return to Full Dashboard Banner */}
@@ -800,18 +823,18 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row" dir="rtl">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row overflow-x-hidden" dir="rtl">
       {/* Mobile Sidebar Backdrop */}
       {mobileSidebarOpen && (
         <div
-          className="no-print fixed inset-0 z-40 bg-slate-950/60 lg:hidden"
+          className="no-print fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm lg:hidden transition-opacity"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
 
       {/* Architectural Dark/Blue RTL Sidebar */}
       <aside
-        className={`no-print fixed lg:sticky top-0 right-0 z-50 h-screen w-[272px] bg-[#0B1426] text-slate-200 flex flex-col justify-between border-l border-slate-800/90 shrink-0 transition-transform duration-200 ease-out ${
+        className={`no-print fixed lg:sticky top-0 right-0 z-50 h-screen w-[280px] max-w-[85vw] bg-[#0B1426] text-slate-200 flex flex-col justify-between border-l border-slate-800/90 shadow-2xl shrink-0 transition-transform duration-200 ease-out ${
           mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
         }`}
       >
@@ -999,20 +1022,22 @@ export function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar Contract: 3 clean zones */}
-        <header className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4 sm:gap-8">
+        <header className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-xs border-b border-slate-200 px-3 sm:px-6 py-3 flex items-center justify-between gap-2 sm:gap-4 max-w-full overflow-hidden">
           {/* Zone 1: Mobile Menu + Contextual Title */}
-          <div className="flex items-center gap-3 min-w-0 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileSidebarOpen(true)}
-              className="lg:hidden w-9 h-9 rounded-lg border border-slate-200 flex items-center justify-center text-slate-700 hover:bg-slate-100"
+              className="lg:hidden w-9 h-9 rounded-lg border border-slate-200 flex items-center justify-center text-slate-700 hover:bg-slate-100 shrink-0 cursor-pointer"
               aria-label="فتح القائمة"
             >
               <Menu className="w-4 h-4" />
             </button>
-            <h1 className="font-display font-bold text-base sm:text-lg text-slate-900 truncate whitespace-nowrap">
-              {sectionTitles[activeSection]}
-            </h1>
+            <div className="min-w-0">
+              <h1 className="font-display font-bold text-sm sm:text-base lg:text-lg text-slate-900 truncate">
+                {sectionTitles[activeSection]}
+              </h1>
+            </div>
           </div>
 
           {/* Zone 2: Segmented Year Filter */}
@@ -1049,34 +1074,60 @@ export function App() {
           </div>
 
           {/* Zone 3: Primary Action & Create Box */}
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setIsFocusedScanMode(true)}
-              className="px-2.5 sm:px-3 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-2xs"
-              title="فحص الصندوق الحالي بنمط الجوال المخصص للباركود"
-            >
-              <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
-              <span>فحص الصندوق</span>
-            </button>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Mobile-Only Action Buttons (Compact icons - Zero overflow!) */}
+            <div className="flex sm:hidden items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsFocusedScanMode(true)}
+                className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center cursor-pointer shadow-2xs"
+                title="فحص الصندوق الحالي بنمط الجوال المخصص للباركود"
+                aria-label="فحص الصندوق"
+              >
+                <Smartphone className="w-4 h-4 text-indigo-600" />
+              </button>
 
-            <button
-              type="button"
-              onClick={() => setIsCreateBoxModalOpen(true)}
-              className="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>إنشاء صندوق جديد</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setIsCreateBoxModalOpen(true)}
+                className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center cursor-pointer shadow-xs"
+                title="إنشاء صندوق جديد"
+                aria-label="إنشاء صندوق جديد"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => triggerPrint('all-stickers')}
-              className="px-3 sm:px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>طباعة ملصقات كل الصناديق ({boxes.length})</span>
-            </button>
+            {/* Desktop / Tablet Full Action Buttons */}
+            <div className="hidden sm:flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsFocusedScanMode(true)}
+                className="px-2.5 sm:px-3 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
+                title="فحص الصندوق الحالي بنمط الجوال المخصص للباركود"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
+                <span>فحص الصندوق</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsCreateBoxModalOpen(true)}
+                className="px-3 sm:px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>إنشاء صندوق جديد</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => triggerPrint('all-stickers')}
+                className="px-3 sm:px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-2 transition-colors whitespace-nowrap cursor-pointer shadow-xs"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>طباعة ملصقات كل الصناديق ({boxes.length})</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -1314,7 +1365,7 @@ export function App() {
                       البحث الذكي الفوري عن مورد أو شركة أو مستند
                     </h2>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      اكتب اسم أي مورد أو شركة ليظهر لك فوراً رقم الصندوق ورقم الظرف وكود المستند ورقم الشيك
+                      يدعم البحث المزدوج بالعربية أو الإنجليزية (عربي ⇄ English) والبحث بأرقام السندات والشيكات
                     </p>
                   </div>
                   <button
@@ -1332,7 +1383,7 @@ export function App() {
                     type="text"
                     value={globalSearchQuery}
                     onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                    placeholder="ابحث باسم المورد أو الشركة أو الكود (مثال: Domty، المعادي، بتروتريد، Mohamed Aziz، CMO003، Aramex)..."
+                    placeholder="ابحث بالعربي أو English (مثل: Domty، دومتي، Amico، أميكو، أرامكس، Aramex، بتروتريد، ماريوت، CIB، المعادي)..."
                     className="w-full pr-11 pl-24 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:border-blue-600 transition-colors"
                   />
                   {globalSearchQuery && (
@@ -1399,7 +1450,15 @@ export function App() {
                                   {item.envelopeLabel}
                                 </td>
                                 <td className="px-4 py-2.5 font-semibold text-slate-900">
-                                  {item.supplierName}
+                                  <div>{item.supplierName}</div>
+                                  {(() => {
+                                    const bi = getSupplierBilingualInfo(item.supplierName);
+                                    return bi.secondary ? (
+                                      <div className="text-[11px] text-blue-600 font-normal">
+                                        {bi.secondary}
+                                      </div>
+                                    ) : null;
+                                  })()}
                                 </td>
                                 <td className="px-4 py-2.5 font-mono-num text-xs text-slate-700">
                                   {item.docNo}
@@ -1754,7 +1813,15 @@ export function App() {
                             {rec.envelopeLabel}
                           </td>
                           <td className="px-4 py-2.5 font-semibold text-slate-900">
-                            {rec.supplierName}
+                            <div>{rec.supplierName}</div>
+                            {(() => {
+                              const bi = getSupplierBilingualInfo(rec.supplierName);
+                              return bi.secondary ? (
+                                <div className="text-[11px] text-blue-600 font-normal">
+                                  {bi.secondary}
+                                </div>
+                              ) : null;
+                            })()}
                           </td>
                           <td className="px-4 py-2.5 font-mono-num text-xs text-blue-700 whitespace-nowrap">
                             {rec.docNo}
@@ -1877,71 +1944,73 @@ export function App() {
                     </p>
                   </div>
 
-                  {/* Actions for Active Box: Batch Add, Single Add, Edit Box, QR, Print */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setIsAddSingleModalOpen(true)}
-                      className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>+ إضافة مورد واحد</span>
-                    </button>
+                  {/* Actions for Active Box: Structured for Mobile & Desktop */}
+                  <div className="w-full lg:w-auto">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddSingleModalOpen(true)}
+                        className="col-span-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                      >
+                        <Plus className="w-4 h-4 shrink-0" />
+                        <span>+ مورد واحد</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setIsBatchAddModalOpen(true)}
-                      className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
-                    >
-                      <ClipboardPaste className="w-4 h-4" />
-                      <span>+ إضافة موردين بالنسخ</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsBatchAddModalOpen(true)}
+                        className="col-span-1 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                      >
+                        <ClipboardPaste className="w-4 h-4 shrink-0" />
+                        <span>+ إضافة بالنسخ</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setBoxToEdit(activeBox)}
-                      className="px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                    >
-                      <Pencil className="w-3.5 h-3.5 text-amber-700" />
-                      <span>تحرير الصندوق</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setBoxToEdit(activeBox)}
+                        className="col-span-1 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                        <span>تحرير الصندوق</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleRenumberFiles(activeBox.id)}
-                      className="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                      title="إعادة ترقيم ملفات الصندوق تسلسلياً (1 إلى N)"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-                      <span>إعادة الترقيم</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setQrModalBox(activeBox)}
+                        className="col-span-1 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-800 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        <QrCode className="w-4 h-4 text-blue-600 shrink-0" />
+                        <span>QR والباركود</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setQrModalBox(activeBox)}
-                      className="px-3.5 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-800 flex items-center gap-2 cursor-pointer whitespace-nowrap"
-                    >
-                      <QrCode className="w-4 h-4 text-blue-600" />
-                      <span>عرض QR والباركود</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerPrint('single-sticker', activeBox.id)}
+                        className="col-span-1 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        <Printer className="w-4 h-4 shrink-0" />
+                        <span>طباعة الملصق</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => triggerPrint('single-sticker', activeBox.id)}
-                      className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold flex items-center gap-2 cursor-pointer whitespace-nowrap"
-                    >
-                      <Printer className="w-4 h-4" />
-                      <span>طباعة الملصق</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRenumberFiles(activeBox.id)}
+                        className="col-span-1 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-medium text-slate-700 flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        title="إعادة ترقيم ملفات الصندوق تسلسلياً (1 إلى N)"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span>إعادة الترقيم</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => triggerPrint('box-manifest', activeBox.id)}
-                      className="px-3.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-semibold flex items-center gap-2 cursor-pointer whitespace-nowrap"
-                    >
-                      <FileText className="w-4 h-4" />
-                      <span>كشف المحتويات</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerPrint('box-manifest', activeBox.id)}
+                        className="col-span-2 sm:col-span-1 px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        <FileText className="w-4 h-4 shrink-0" />
+                        <span>كشف المحتويات</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -2161,14 +2230,23 @@ export function App() {
                             </div>
                           </div>
 
-                          {/* Supplier Name - Bold & High Contrast for Handheld Screens */}
+                          {/* Supplier Name - Bold & High Contrast with Bilingual Display */}
                           <div className="space-y-1">
                             <span className="text-[11px] text-slate-400 font-medium block">
                               اسم المورد / الشركة:
                             </span>
-                            <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900 leading-snug">
+                            <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900 leading-snug break-words">
                               {row.supplierName}
                             </h2>
+                            {(() => {
+                              const bi = getSupplierBilingualInfo(row.supplierName);
+                              return bi.secondary ? (
+                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 text-xs font-semibold border border-blue-200/60 mt-0.5">
+                                  <span className="text-[10px] text-blue-500 font-normal">الاسم المترجم:</span>
+                                  <span>{bi.secondary}</span>
+                                </div>
+                              ) : null;
+                            })()}
                           </div>
 
                           {/* Document and Check Badges with 1-Tap Copy */}
@@ -2296,7 +2374,15 @@ export function App() {
                                 {row.envelopeLabel}
                               </td>
                               <td className="px-4 py-2.5 font-semibold text-slate-900">
-                                {row.supplierName}
+                                <div>{row.supplierName}</div>
+                                {(() => {
+                                  const bi = getSupplierBilingualInfo(row.supplierName);
+                                  return bi.secondary ? (
+                                    <div className="text-[11px] text-blue-600 font-normal">
+                                      {bi.secondary}
+                                    </div>
+                                  ) : null;
+                                })()}
                               </td>
                               <td className="px-4 py-2.5 font-mono-num text-xs text-blue-700 whitespace-nowrap">
                                 {row.docNo}
