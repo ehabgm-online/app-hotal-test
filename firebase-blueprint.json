@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "ArchiveBox": {
+      "title": "ArchiveBox",
+      "description": "An archive box containing invoices, checks, and supplier files for given accounting years",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number",
+          "description": "Unique numerical box ID"
+        },
+        "code": {
+          "type": "string",
+          "description": "Box reference code e.g. BOX-01",
+          "maxLength": 64
+        },
+        "barcodeValue": {
+          "type": "string",
+          "description": "Barcode / QR value e.g. ARC-2017-BOX01",
+          "maxLength": 128
+        },
+        "titleAr": {
+          "type": "string",
+          "description": "Arabic title of the box e.g. صندوق 1",
+          "maxLength": 200
+        },
+        "subtitleAr": {
+          "type": "string",
+          "description": "Arabic subtitle or summary tracker",
+          "maxLength": 500
+        },
+        "primaryYear": {
+          "type": "number",
+          "description": "Primary accounting year"
+        },
+        "years": {
+          "type": "array",
+          "description": "List of associated accounting years"
+        },
+        "categoryScope": {
+          "type": "string",
+          "description": "Scope of documents contained in this box",
+          "maxLength": 500
+        },
+        "files": {
+          "type": "array",
+          "description": "List of document file records within this box"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update",
+          "maxLength": 64
+        }
+      },
+      "required": ["id", "code", "barcodeValue", "titleAr", "primaryYear", "years", "files"]
+    }
+  },
+  "firestore": {
+    "/boxes/{boxId}": {
+      "schema": "ArchiveBox",
+      "description": "Collection of all archive storage boxes"
+    }
+  }
+}

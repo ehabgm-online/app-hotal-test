@@ -9,6 +9,7 @@ import {
   Check,
   CheckCircle2,
   ClipboardPaste,
+  Cloud,
   Copy,
   Download,
   Edit3,
@@ -24,6 +25,7 @@ import {
   Plus,
   Printer,
   QrCode,
+  RefreshCw,
   RotateCcw,
   Search,
   Share2,
@@ -52,6 +54,15 @@ import {
 } from './components/BoxEditorModals';
 import { downloadStandaloneHtml } from './utils/singleFileExporter';
 import { matchesBilingual, getSupplierBilingualInfo } from './utils/bilingualSearch';
+import {
+  subscribeToFirestoreBoxes,
+  saveBoxToCloud,
+  deleteBoxFromCloud,
+  resetCloudBoxesToDefault,
+  testFirestoreConnection,
+  cacheBoxesLocally,
+  getLocalCachedBoxes,
+} from './services/firestoreArchive';
 
 type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'qrcodes';
 type YearFilter = 'all' | number;
@@ -64,25 +75,15 @@ interface FlattenedRecord extends ArchiveFileRecord {
   boxCategory: string;
 }
 
-const STORAGE_KEY = 'smart_docs_boxes_data_v1';
-
 function loadStoredBoxes(): ArchiveBox[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to parse stored boxes', e);
-  }
-  return ARCHIVE_BOXES;
+  return getLocalCachedBoxes();
 }
 
 export function App() {
   const [boxes, setBoxes] = useState<ArchiveBox[]>(loadStoredBoxes);
+  const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(true);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('');
   const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
   const [yearFilter, setYearFilter] = useState<YearFilter>('all');
   const [selectedBoxId, setSelectedBoxId] = useState<number>(1);
@@ -129,6 +130,27 @@ export function App() {
     }, 2800);
   };
 
+  // Real-time Firestore Cloud Database Synchronization
+  useEffect(() => {
+    testFirestoreConnection();
+
+    const unsubscribe = subscribeToFirestoreBoxes(
+      (cloudBoxes, synced) => {
+        setBoxes(cloudBoxes);
+        setIsCloudSynced(synced);
+        setIsSyncing(false);
+        setLastSyncTime(new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }));
+      },
+      (err) => {
+        console.warn('Real-time sync notice:', err);
+        setIsCloudSynced(false);
+        setIsSyncing(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
   // Lock body scroll when mobile sidebar drawer is open to prevent overlapping scrolling
   useEffect(() => {
     if (mobileSidebarOpen) {
@@ -154,95 +176,114 @@ export function App() {
     return Array.from(yrSet).sort((a, b) => b - a);
   }, [boxes]);
 
-  // Handle box creation with pasted suppliers
-  const handleCreateBox = (newBox: ArchiveBox) => {
+  // Handle box creation with pasted suppliers (persisted directly to Cloud Firestore)
+  const handleCreateBox = async (newBox: ArchiveBox) => {
     setBoxes((prev) => {
       const updated = [...prev, newBox];
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Storage quota error', e);
-      }
+      cacheBoxesLocally(updated);
       return updated;
     });
     setSelectedBoxId(newBox.id);
     setActiveSection('boxes');
-    showToast(`تم إنشاء ${newBox.titleAr} بنجاح مع إضافة ${newBox.files.length} مورد!`);
+    showToast(`جاري حفظ ${newBox.titleAr} في السحابة...`);
+    try {
+      await saveBoxToCloud(newBox);
+      showToast(`تم حفظ ومزامنة ${newBox.titleAr} في السحابة بنجاح! متزامن لجميع الأجهزة.`);
+    } catch (e) {
+      console.error('Failed to sync new box to cloud:', e);
+      showToast(`تم الحفظ محلياً (تعذر الاتصال بالسحابة)`);
+    }
   };
 
   // Handle batch adding suppliers to an existing box
-  const handleBatchAddSuppliers = (boxId: number, newFiles: ArchiveFileRecord[]) => {
+  const handleBatchAddSuppliers = async (boxId: number, newFiles: ArchiveFileRecord[]) => {
+    let boxToSave: ArchiveBox | null = null;
     setBoxes((prev) => {
       const updated = prev.map((b) => {
         if (b.id !== boxId) return b;
-        return {
+        const nb = {
           ...b,
           files: [...b.files, ...newFiles],
         };
+        boxToSave = nb;
+        return nb;
       });
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Storage quota error', e);
-      }
+      cacheBoxesLocally(updated);
       return updated;
     });
-    showToast(`تمت إضافة ${newFiles.length} مورد بنجاح إلى الصندوق!`);
+    if (boxToSave) {
+      try {
+        await saveBoxToCloud(boxToSave);
+        showToast(`تمت إضافة ${newFiles.length} مورد ومزامنتها سحابياً بنجاح!`);
+      } catch (e) {
+        console.error('Failed to update cloud:', e);
+        showToast(`تمت الإضافة محلياً`);
+      }
+    }
   };
 
   // Update Box details
-  const handleUpdateBox = (updatedBox: ArchiveBox) => {
+  const handleUpdateBox = async (updatedBox: ArchiveBox) => {
     setBoxes((prev) => {
       const updated = prev.map((b) => (b.id === updatedBox.id ? updatedBox : b));
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Storage quota error', e);
-      }
+      cacheBoxesLocally(updated);
       return updated;
     });
-    showToast(`تم حفظ تعديلات ${updatedBox.titleAr} بنجاح!`);
+    try {
+      await saveBoxToCloud(updatedBox);
+      showToast(`تم حفظ تعديلات ${updatedBox.titleAr} في السحابة بنجاح!`);
+    } catch (e) {
+      console.error('Failed to update cloud:', e);
+      showToast(`تم الحفظ محلياً`);
+    }
   };
 
   // Delete Box
-  const handleDeleteBox = (boxId: number) => {
+  const handleDeleteBox = async (boxId: number) => {
     if (boxes.length <= 1) {
       showToast('لا يمكن حذف الصندوق الوحيد المتبقي.');
       return;
     }
     const remaining = boxes.filter((b) => b.id !== boxId);
     setBoxes(remaining);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
-    } catch (e) {
-      console.error('Storage quota error', e);
-    }
+    cacheBoxesLocally(remaining);
     setSelectedBoxId(remaining[0].id);
-    showToast('تم حذف الصندوق ومحتوياته بنجاح.');
+    try {
+      await deleteBoxFromCloud(boxId);
+      showToast('تم حذف الصندوق من السحابة بنجاح.');
+    } catch (e) {
+      console.error('Failed to delete from cloud:', e);
+    }
   };
 
   // Update Single File / Supplier Record
-  const handleUpdateRecord = (boxId: number, updatedRecord: ArchiveFileRecord) => {
+  const handleUpdateRecord = async (boxId: number, updatedRecord: ArchiveFileRecord) => {
+    let boxToSave: ArchiveBox | null = null;
     setBoxes((prev) => {
       const updated = prev.map((b) => {
         if (b.id !== boxId) return b;
-        return {
+        const nb = {
           ...b,
           files: b.files.map((f) => (f.fileNo === updatedRecord.fileNo ? updatedRecord : f)),
         };
+        boxToSave = nb;
+        return nb;
       });
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Storage quota error', e);
-      }
+      cacheBoxesLocally(updated);
       return updated;
     });
-    showToast(`تم تعديل بيانات "${updatedRecord.supplierName}" بنجاح!`);
+    if (boxToSave) {
+      try {
+        await saveBoxToCloud(boxToSave);
+        showToast(`تم حفظ تعديل "${updatedRecord.supplierName}" في السحابة بنجاح!`);
+      } catch (e) {
+        console.error('Failed to sync to cloud:', e);
+      }
+    }
   };
 
   // Delete Single File / Supplier Record
-  const handleDeleteRecord = (boxId: number, fileNo: number) => {
+  const handleDeleteRecord = async (boxId: number, fileNo: number) => {
     const targetBox = boxes.find((b) => b.id === boxId);
     const targetFile = targetBox?.files.find((f) => f.fileNo === fileNo);
     if (
@@ -253,47 +294,60 @@ export function App() {
       return;
     }
 
+    let boxToSave: ArchiveBox | null = null;
     setBoxes((prev) => {
       const updated = prev.map((b) => {
         if (b.id !== boxId) return b;
         const filtered = b.files.filter((f) => f.fileNo !== fileNo);
-        return {
+        const nb = {
           ...b,
           files: filtered,
         };
+        boxToSave = nb;
+        return nb;
       });
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Storage quota error', e);
-      }
+      cacheBoxesLocally(updated);
       return updated;
     });
-    showToast('تم حذف المورد من الصندوق.');
+    if (boxToSave) {
+      try {
+        await saveBoxToCloud(boxToSave);
+        showToast('تم حذف المورد وتحديث السحابة بنجاح.');
+      } catch (e) {
+        console.error('Failed to sync to cloud:', e);
+      }
+    }
   };
 
   // Add Single Supplier Record
-  const handleAddSingleRecord = (boxId: number, newRecord: ArchiveFileRecord) => {
+  const handleAddSingleRecord = async (boxId: number, newRecord: ArchiveFileRecord) => {
+    let boxToSave: ArchiveBox | null = null;
     setBoxes((prev) => {
       const updated = prev.map((b) => {
         if (b.id !== boxId) return b;
-        return {
+        const nb = {
           ...b,
           files: [...b.files, newRecord],
         };
+        boxToSave = nb;
+        return nb;
       });
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Storage quota error', e);
-      }
+      cacheBoxesLocally(updated);
       return updated;
     });
-    showToast(`تمت إضافة "${newRecord.supplierName}" بنجاح إلى الصندوق!`);
+    if (boxToSave) {
+      try {
+        await saveBoxToCloud(boxToSave);
+        showToast(`تمت إضافة "${newRecord.supplierName}" وحفظها في السحابة بنجاح!`);
+      } catch (e) {
+        console.error('Failed to sync to cloud:', e);
+      }
+    }
   };
 
   // Re-number file records in a box sequentially from 1 to N
-  const handleRenumberFiles = (boxId: number) => {
+  const handleRenumberFiles = async (boxId: number) => {
+    let boxToSave: ArchiveBox | null = null;
     setBoxes((prev) => {
       const updated = prev.map((b) => {
         if (b.id !== boxId) return b;
@@ -302,32 +356,42 @@ export function App() {
           fileNo: i + 1,
           envelopeLabel: `الظرف ${i + 1}`,
         }));
-        return {
+        const nb = {
           ...b,
           files: renumbered,
         };
+        boxToSave = nb;
+        return nb;
       });
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error('Storage quota error', e);
-      }
+      cacheBoxesLocally(updated);
       return updated;
     });
-    showToast('تمت إعادة ترقيم ملفات الصندوق تسلسلياً (1 إلى N) بنجاح!');
+    if (boxToSave) {
+      try {
+        await saveBoxToCloud(boxToSave);
+        showToast('تمت إعادة ترقيم الملفات وتحديث السحابة بنجاح!');
+      } catch (e) {
+        console.error('Failed to sync to cloud:', e);
+      }
+    }
   };
 
-  // Reset to original 13 default boxes
-  const handleResetToDefault = () => {
+  // Reset to original 13 default boxes in Cloud Firestore and local
+  const handleResetToDefault = async () => {
     if (
       window.confirm(
-        'هل تريد استعادة الصناديق الافتراضية الأصلية (1 إلى 13)؟ سيتم حذف أي صناديق أو موردين مضافين يدوياً.'
+        'هل تريد استعادة الصناديق الافتراضية الأصلية (1 إلى 13) في قاعدة البيانات السحابية؟ سيتم تحديث جميع الأجهزة المتصلة والموقع فورياً.'
       )
     ) {
-      localStorage.removeItem(STORAGE_KEY);
-      setBoxes(ARCHIVE_BOXES);
-      setSelectedBoxId(1);
-      showToast('تمت استعادة الصناديق الأصلية بنجاح.');
+      showToast('جاري استعادة الصناديق الأصلية في السحابة...');
+      try {
+        await resetCloudBoxesToDefault();
+        setSelectedBoxId(1);
+        showToast('تمت استعادة الصناديق الأصلية في السحابة بنجاح.');
+      } catch (err) {
+        console.error('Failed to reset cloud:', err);
+        showToast('حدث خطأ أثناء الاتصال بالسحابة');
+      }
     }
   };
 
@@ -348,6 +412,7 @@ export function App() {
   }, [boxes]);
 
   const getBoxDirectUrl = (boxId: number): string => {
+    if (typeof window === 'undefined') return `?box=${boxId}`;
     const cleanBase = `${window.location.origin}${window.location.pathname}`;
     return `${cleanBase}?box=${boxId}`;
   };
@@ -578,9 +643,15 @@ export function App() {
                   سنة {activeBox.primaryYear}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 truncate">
-                {activeBox.files.length} ملف ومورد مؤرشف
-              </p>
+              <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                <span>{activeBox.files.length} ملف ومورد مؤرشف</span>
+                {isCloudSynced && (
+                  <span className="text-emerald-400 font-semibold text-[10px] flex items-center gap-1">
+                    <Cloud className="w-3 h-3 text-emerald-400" />
+                    <span>سحابي متزامن</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -827,20 +898,20 @@ export function App() {
       {/* Mobile Sidebar Backdrop */}
       {mobileSidebarOpen && (
         <div
-          className="no-print fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm lg:hidden transition-opacity"
+          className="no-print fixed inset-0 z-[70] bg-slate-950/75 backdrop-blur-sm lg:hidden transition-opacity"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
 
       {/* Architectural Dark/Blue RTL Sidebar */}
       <aside
-        className={`no-print fixed lg:sticky top-0 right-0 z-50 h-screen w-[280px] max-w-[85vw] bg-[#0B1426] text-slate-200 flex flex-col justify-between border-l border-slate-800/90 shadow-2xl shrink-0 transition-transform duration-200 ease-out ${
+        className={`no-print fixed lg:sticky top-0 right-0 z-[80] h-screen w-[290px] max-w-[85vw] bg-[#0B1426] text-slate-200 flex flex-col justify-between border-l border-slate-800/90 shadow-2xl shrink-0 transition-transform duration-200 ease-out ${
           mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
         }`}
       >
         <div className="flex flex-col h-full overflow-y-auto">
           {/* Brand Header */}
-          <div className="px-5 py-5 border-b border-slate-800/80 flex items-center justify-between">
+          <div className="px-5 py-4 border-b border-slate-800/80 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
                 <Archive className="w-5 h-5" />
@@ -849,15 +920,19 @@ export function App() {
                 <div className="font-display font-bold text-white text-base tracking-tight leading-snug">
                   Smart Docs
                 </div>
-                <div className="text-xs text-slate-400">نظام الأرشفة الإلكتروني</div>
+                <div className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>سحابة نشطة ومزامنة</span>
+                </div>
               </div>
             </div>
             <button
               type="button"
               onClick={() => setMobileSidebarOpen(false)}
-              className="lg:hidden w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800"
+              className="lg:hidden px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 text-xs font-bold border border-slate-700 cursor-pointer"
               aria-label="إغلاق القائمة"
             >
+              <span>إغلاق</span>
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -1034,9 +1109,40 @@ export function App() {
               <Menu className="w-4 h-4" />
             </button>
             <div className="min-w-0">
-              <h1 className="font-display font-bold text-sm sm:text-base lg:text-lg text-slate-900 truncate">
-                {sectionTitles[activeSection]}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="font-display font-bold text-sm sm:text-base lg:text-lg text-slate-900 truncate">
+                  {sectionTitles[activeSection]}
+                </h1>
+                {/* Cloud Sync Status Indicator */}
+                <div className="shrink-0">
+                  {isSyncing ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                      <RefreshCw className="w-3 h-3 animate-spin text-amber-600" />
+                      <span className="hidden sm:inline">جاري المزامنة...</span>
+                    </span>
+                  ) : isCloudSynced ? (
+                    <span
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"
+                      title={`متصل بقاعدة البيانات السحابية - آخر مزامنة: ${lastSyncTime}`}
+                    >
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="hidden sm:inline">سحابي متصل</span>
+                    </span>
+                  ) : (
+                    <span
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full"
+                      title="يعمل حالياً بوضع التخزين المؤقت (محلي)"
+                    >
+                      <Cloud className="w-3 h-3 text-slate-400" />
+                      <span className="hidden sm:inline">محلي</span>
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
