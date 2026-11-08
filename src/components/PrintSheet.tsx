@@ -1,14 +1,15 @@
 import React from 'react';
-import { ArchiveBox } from '../data/archiveData';
+import { ArchiveBox, MASTER_USER_SUPPLIERS } from '../data/archiveData';
 import { BoxQrCode, Code128Barcode } from './BoxCodes';
-import { getBilingualFileLabel } from '../utils/bilingualSearch';
+import { getBilingualFileLabel, matchesBilingual } from '../utils/bilingualSearch';
 
 export type PrintMode =
   | 'single-sticker'
   | 'all-stickers'
   | 'all-stickers-compact'
   | 'box-manifest'
-  | 'suppliers-audit';
+  | 'suppliers-audit'
+  | 'extraction-plan';
 
 export interface SupplierAuditLocation {
   boxId: number;
@@ -244,6 +245,116 @@ export const PrintSheet: React.FC<PrintSheetProps> = ({
           <div className="flex items-center gap-8">
             <div>توقيع مسؤول الأرشيف: .........................</div>
             <div>اعتماد الإدارة: .........................</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2.5 Box-by-Box Supplier Extraction Plan (خطة استخراج الموردين لكل صندوق)
+  if (mode === 'extraction-plan') {
+    return (
+      <div className="hidden print:block bg-white text-slate-900 p-6 space-y-8" dir="rtl">
+        {/* Document Header */}
+        <div className="border-b-2 border-slate-900 pb-4 flex items-center justify-between">
+          <div className="space-y-1">
+            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+              SMART DOCS E-ARCHIVE · خطة استخراج وتدقيق الموردين لكل صندوق
+            </div>
+            <h1 className="text-xl font-black text-slate-950 font-display">
+              بيان تفصيلي بمتطلبات واستخراج الموردين المطلوبين من كل صندوق (1 إلى 13)
+            </h1>
+            <p className="text-xs text-slate-600">
+              قائمة تفصيلية توضح لكل صندوق أرقام الظروف والمستندات للموردين المطابقين للقائمة الرئيسية المعتمدة.
+            </p>
+          </div>
+          <div className="text-left text-xs font-mono-num space-y-0.5 border-r pr-4 border-slate-200 shrink-0">
+            <div><strong>تاريخ التقرير:</strong> {new Date().toLocaleDateString('ar-EG')}</div>
+            <div><strong>إجمالي الصناديق:</strong> {boxes.length} صندوق</div>
+          </div>
+        </div>
+
+        {/* Per-Box Extraction Plan */}
+        <div className="space-y-8">
+          {boxes.map((box) => {
+            const requiredFiles = box.files.filter((f) =>
+              MASTER_USER_SUPPLIERS.some((uSup) => matchesBilingual(f.supplierName, uSup))
+            );
+
+            return (
+              <div key={box.id} className="border-2 border-slate-800 rounded-xl p-5 space-y-3 print-break-inside-avoid">
+                <div className="flex items-center justify-between border-b border-slate-300 pb-2">
+                  <div className="flex items-center gap-3">
+                    <span className="w-10 h-10 rounded-lg bg-slate-950 text-white font-black font-mono-num text-lg flex items-center justify-center">
+                      {String(box.id).padStart(2, '0')}
+                    </span>
+                    <div>
+                      <h3 className="font-display font-extrabold text-base text-slate-950">
+                        {box.titleAr} ({box.code})
+                      </h3>
+                      <p className="text-[11px] text-slate-600">
+                        السنة المالية: {box.years.join(' / ')} · إجمالي الملفات في الصندوق: {box.files.length} · <strong className="text-emerald-700">المطلوب استخراجه من هذا الصندوق: {requiredFiles.length} مورد</strong>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-xs font-mono-num bg-emerald-50 text-emerald-900 border border-emerald-300 px-3 py-1 rounded-lg font-bold">
+                    ✓ متطلبات الاستخراج: {requiredFiles.length}
+                  </div>
+                </div>
+
+                {requiredFiles.length === 0 ? (
+                  <div className="text-xs text-slate-500 italic p-3 bg-slate-50 rounded-lg">
+                    لا توجد موردين مطابِقين للقائمة الرئيسية مستخرجين من هذا الصندوق.
+                  </div>
+                ) : (
+                  <table className="w-full text-right text-[11px] border-collapse border border-slate-400">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-900 border-b border-slate-400 font-bold">
+                        <th className="border border-slate-400 px-2 py-1 text-center w-8">م</th>
+                        <th className="border border-slate-400 px-2 py-1 w-24">الظرف / الملف</th>
+                        <th className="border border-slate-400 px-3 py-1">اسم المورد المطلوب استخراجه</th>
+                        <th className="border border-slate-400 px-2 py-1 w-28">رقم المستند</th>
+                        <th className="border border-slate-400 px-2 py-1 w-24">الشيك / السنة</th>
+                        <th className="border border-slate-400 px-2 py-1">ملاحظات الصندوق</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {requiredFiles.map((f, idx) => (
+                        <tr key={f.fileNo} className="border-b border-slate-300 bg-white">
+                          <td className="border border-slate-300 px-2 py-1 text-center font-mono-num font-bold text-slate-700">
+                            {idx + 1}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1 font-mono-num font-bold text-slate-900">
+                            {f.envelopeLabel}
+                          </td>
+                          <td className="border border-slate-300 px-3 py-1 font-bold text-slate-950">
+                            {f.supplierName}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1 font-mono-num text-slate-800">
+                            {f.docNo}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1 font-mono-num text-slate-800">
+                            {f.checkNo !== '—' ? f.checkNo : f.year}
+                          </td>
+                          <td className="border border-slate-300 px-2 py-1 text-slate-600">
+                            {f.notes}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer sign-off */}
+        <div className="pt-6 border-t border-slate-300 flex items-center justify-between text-xs text-slate-600 print-break-inside-avoid">
+          <div>خطة استخراج الموردين من الصناديق (1 إلى 13) · Smart Docs E-Archive</div>
+          <div className="flex items-center gap-8">
+            <div>توقيع أمين الأرشيف: .........................</div>
+            <div>اعتماد الإدارة المالية: .........................</div>
           </div>
         </div>
       </div>

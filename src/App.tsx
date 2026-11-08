@@ -42,6 +42,7 @@ import {
   ArchiveBox,
   ArchiveFileRecord,
   MASTER_PDF_PATH,
+  MASTER_USER_SUPPLIERS,
   normalizeArabicSearch,
 } from './data/archiveData';
 import { BoxQrCode, Code128Barcode } from './components/BoxCodes';
@@ -73,7 +74,7 @@ import {
   getLocalCachedBoxes,
 } from './services/firestoreArchive';
 
-type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'qrcodes' | 'suppliers';
+type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'qrcodes' | 'suppliers' | 'extraction-plan';
 type YearFilter = 'all' | number;
 type IntraSearchScope = 'current-box' | 'same-year';
 
@@ -654,6 +655,65 @@ export function App() {
     showToast('تم تصدير كشف تدقيق الموردين بالكامل بنجاح (Excel / CSV)');
   };
 
+  // Per-Box Supplier Extraction Plans (خطة استخراج الموردين لكل صندوق)
+  const boxExtractionPlans = useMemo(() => {
+    return boxes.map((box) => {
+      const requiredFiles = box.files.filter((f) =>
+        MASTER_USER_SUPPLIERS.some((uSup) => matchesBilingual(f.supplierName, uSup))
+      );
+      const otherFiles = box.files.filter((f) =>
+        !MASTER_USER_SUPPLIERS.some((uSup) => matchesBilingual(f.supplierName, uSup))
+      );
+      return {
+        box,
+        requiredFiles,
+        otherFiles,
+        totalRequired: requiredFiles.length,
+      };
+    });
+  }, [boxes]);
+
+  const handleExportExtractionPlanCsv = () => {
+    const headers = [
+      'رقم الصندوق',
+      'كود الصندوق',
+      'عنوان الصندوق',
+      'رقم الظرف / الملف',
+      'اسم المورد المطلوب استخراجه',
+      'رقم المستند',
+      'رقم الشيك',
+      'السنة',
+      'ملاحظات',
+    ];
+    const rows: string[] = [];
+    for (const plan of boxExtractionPlans) {
+      for (const f of plan.requiredFiles) {
+        rows.push([
+          plan.box.id,
+          plan.box.code,
+          `"${plan.box.titleAr.replace(/"/g, '""')}"`,
+          `"${f.envelopeLabel.replace(/"/g, '""')}"`,
+          `"${f.supplierName.replace(/"/g, '""')}"`,
+          `"${f.docNo.replace(/"/g, '""')}"`,
+          `"${f.checkNo.replace(/"/g, '""')}"`,
+          f.year,
+          `"${f.notes.replace(/"/g, '""')}"`,
+        ].join(','));
+      }
+    }
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `خطة_استخراج_الموردين_من_الصناديق_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('تم تصدير خطة استخراج الموردين لكل صندوق بنجاح (Excel / CSV)');
+  };
+
   // Active box object
   const activeBox = useMemo<ArchiveBox>(() => {
     return boxes.find((b) => b.id === selectedBoxId) || boxes[0] || ARCHIVE_BOXES[0];
@@ -859,6 +919,7 @@ export function App() {
     boxes: `إدارة الصناديق · ${activeBox.titleAr}`,
     qrcodes: 'مركز رموز QR وطباعة ملصقات الباركود',
     suppliers: 'دليل الموردين الشامل وأماكن تواجدهم',
+    'extraction-plan': 'خطة استخراج وتدقيق الموردين لكل صندوق',
   };
 
   const maxFilesInAnyBox = useMemo(
@@ -1157,7 +1218,7 @@ export function App() {
         {/* Dedicated Print Media Surface */}
         <PrintSheet
           mode={printMode}
-          boxes={yearFilteredBoxes}
+          boxes={printMode === 'extraction-plan' ? boxes : yearFilteredBoxes}
           activeBox={printTargetBox}
           getBoxUrl={getBoxDirectUrl}
           suppliersList={filteredSuppliersDirectory}
@@ -1303,6 +1364,25 @@ export function App() {
                 <span>دليل الموردين الشامل</span>
               </span>
               <span className="text-xs font-mono-num opacity-80">{suppliersDirectoryList.length}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSection('extraction-plan');
+                setMobileSidebarOpen(false);
+              }}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                activeSection === 'extraction-plan'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+              }`}
+            >
+              <span className="flex items-center gap-3 whitespace-nowrap">
+                <FileText className="w-4 h-4 shrink-0 text-emerald-400" />
+                <span>خطة استخراج الصناديق</span>
+              </span>
+              <span className="text-xs font-mono-num opacity-80">1–13</span>
             </button>
           </div>
 
@@ -3420,6 +3500,159 @@ export function App() {
               )}
             </div>
           )}
+
+          {/* =========================================================
+              6. BOX-BY-BOX SUPPLIER EXTRACTION PLAN (خطة استخراج الموردين لكل صندوق)
+             ========================================================= */}
+          {activeSection === 'extraction-plan' && (
+            <div className="space-y-6">
+              {/* Header */}
+              <section className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5 shadow-xs">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">
+                      خطة الاستخراج والتدقيق لكل صندوق
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">
+                      الصناديق من 1 إلى 13 بناءً على القائمة الرئيسية
+                    </span>
+                  </div>
+                  <h2 className="font-display font-black text-xl sm:text-2xl text-slate-950">
+                    بيان الموردين المطلوب استخراجهم من كل صندوق
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed">
+                    يعرض هذا القسم لكل صندوق على حدة الموردين والمستندات المطابقة للقائمة الرئيسية التي يجب استخراجها وفحصها من كل صندوق بدقة واحترافية.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => triggerPrint('extraction-plan')}
+                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                    title="طباعة خطة استخراج الموردين لكل صندوق بالكامل على ورق A4 رسمي"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>طباعة خطة الاستخراج (A4)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportExtractionPlanCsv}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                    title="تنزيل شيت إكسيل / CSV لخطة استخراج الموردين لكل صندوق"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>تصدير شيت خطة الاستخراج (CSV)</span>
+                  </button>
+                </div>
+              </section>
+
+              {/* Per-Box Extraction Plan Cards */}
+              <div className="space-y-5">
+                {boxExtractionPlans.map((plan) => (
+                  <div
+                    key={plan.box.id}
+                    className="bg-white border-2 border-slate-200 hover:border-blue-400 rounded-2xl p-5 space-y-4 shadow-xs transition-all"
+                  >
+                    {/* Box Title Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-slate-950 text-white font-black font-mono-num text-xl flex items-center justify-center shadow-xs">
+                          {String(plan.box.id).padStart(2, '0')}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-display font-extrabold text-base sm:text-lg text-slate-950">
+                              {plan.box.titleAr}
+                            </h3>
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 font-mono text-xs font-bold text-slate-700">
+                              {plan.box.code}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-mono text-xs font-bold">
+                              سنة {plan.box.primaryYear}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {plan.box.categoryScope} · إجمالي ملفات الصندوق: {plan.box.files.length} ملف
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold font-mono-num flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span>المطلوب استخراجه: {plan.requiredFiles.length} مورد</span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => navigateToBox(plan.box.id)}
+                          className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold cursor-pointer transition-colors"
+                        >
+                          انتقل للصندوق
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Required Files Table / List */}
+                    {plan.requiredFiles.length === 0 ? (
+                      <div className="p-4 bg-slate-50 rounded-xl text-xs text-slate-500 italic text-center">
+                        لا توجد موردين مطابِقين للقائمة الرئيسية في هذا الصندوق.
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/40">
+                        <table className="w-full text-right text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-200">
+                              <th className="px-3 py-2 text-center w-12 border-l border-slate-200">م</th>
+                              <th className="px-3 py-2 w-32 border-l border-slate-200">الظرف / الملف</th>
+                              <th className="px-3.5 py-2 border-l border-slate-200">اسم المورد المطلوب استخراجه</th>
+                              <th className="px-3 py-2 w-32 border-l border-slate-200">رقم المستند</th>
+                              <th className="px-3 py-2 w-28 border-l border-slate-200">الشيك / السنة</th>
+                              <th className="px-3 py-2">ملاحظات</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {plan.requiredFiles.map((f, fIdx) => (
+                              <tr
+                                key={f.fileNo}
+                                className={`border-b border-slate-200 hover:bg-emerald-50/40 transition-colors ${
+                                  fIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'
+                                }`}
+                              >
+                                <td className="px-3 py-2 text-center font-mono-num font-bold text-slate-700 border-l border-slate-200">
+                                  {fIdx + 1}
+                                </td>
+                                <td className="px-3 py-2 font-mono-num font-bold text-slate-900 border-l border-slate-200">
+                                  {f.envelopeLabel}
+                                </td>
+                                <td className="px-3.5 py-2 font-bold text-slate-950 border-l border-slate-200">
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span>{f.supplierName}</span>
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 font-mono-num text-slate-800 border-l border-slate-200">
+                                  {f.docNo}
+                                </td>
+                                <td className="px-3 py-2 font-mono-num text-slate-800 border-l border-slate-200">
+                                  {f.checkNo !== '—' ? f.checkNo : f.year}
+                                </td>
+                                <td className="px-3 py-2 text-slate-600 truncate max-w-[200px]">
+                                  {f.notes}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </main>
 
         {/* Quiet Footer */}
@@ -3582,7 +3815,7 @@ export function App() {
       {/* Dedicated Print Media Surface */}
       <PrintSheet
         mode={printMode}
-        boxes={yearFilteredBoxes}
+        boxes={printMode === 'extraction-plan' ? boxes : yearFilteredBoxes}
         activeBox={printTargetBox}
         getBoxUrl={getBoxDirectUrl}
         suppliersList={filteredSuppliersDirectory}

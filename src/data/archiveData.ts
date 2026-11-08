@@ -590,6 +590,27 @@ export const ARCHIVE_BOXES: ArchiveBox[] = [
 
 export const AVAILABLE_YEARS = [2017, 2019, 2021] as const;
 
+export const MASTER_USER_SUPPLIERS = [
+  "A.M Foods", "Advanced Trading & Marketi", "Ahmed Saied Moh. Hafez", "Al Gezira for Imp & Exp",
+  "Al Mansour Co. For Trading", "AL MOSTALA FOR TRADING&S (Al Mostafa For Trading & S)", "Al Safy Foods",
+  "Al Suhagy For Food Indust", "Amico Of Egypt", "Arabian co For FoodIndust", "Arma Trading",
+  "AYMAN AFANDY CO.", "Bagheera", "Beirut Co Dairy Cheese S", "Cairo Three For distribut",
+  "Egy Swiss Food Company", "Egypt Bakery Stores", "Egyptian Arab Group For T", "Egyptian Co. For Advanced",
+  "Egyptian Industrial Group", "El Ansary Trading & contra", "El Badr For Trading & Dist",
+  "EL MAMLKA TRADING & SUPPL", "European Paradise Import&", "Farm Cheese", "Food Box For Supplies",
+  "Food House For Food Indus", "Food Master", "Food Staff Trading", "Foodbrand", "Gelafco Sittin Group",
+  "Mamd", "GULF GROUP TRADING & DIST", "H. G Co. For Investment &", "Halwani Bros Co",
+  "Hero For Food Industries", "International Co. for Agr", "International Co. For Foo", "Marina Suppling",
+  "Mido International Tradin", "Moura For Food Industry", "Nasr Khalil Kafafy", "Nestle Water Egypt",
+  "Pepsi Cola Misr", "PETRO", "Port Said Co (Soudanco)", "Prime Foods", "QUANTA IMPORT & TRADE",
+  "Quatro For Import & Expor", "Reach Trading & Marketing", "Regina Co For Pasta&Food",
+  "Salah Eldin Eid Helmy.", "Samir Mohamed Ali Heidar", "SAMO TRADING", "Super Pack For Food Indus",
+  "The Arabic House For Supp", "Tiba For Trade And Distri", "Union Co. For Fish Tradin",
+  "Union Trading Company", "United Co. For Food", "Universal Co .For Edible", "Wadi Food Industries Co.",
+  "YAHIA OTHMAN ABD EL MALEK", "Zenab Ibrahim Abdel Ghani", "تسويق للتجارة والتوزيع", "ريتش للتجارة والتسويق",
+  "منجر للأسواق الحرة", "مامبيا مصر", "شركة شيلار / Ritz Carlton Pen"
+];
+
 export function normalizeArabicSearch(input: string): string {
   return input
     .toLowerCase()
