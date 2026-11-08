@@ -993,6 +993,7 @@ interface AddSingleSupplierModalProps {
   onClose: () => void;
   targetBox: ArchiveBox;
   onAdd: (newRecord: ArchiveFileRecord) => void;
+  initialSupplierName?: string;
 }
 
 export const AddSingleSupplierModal: React.FC<AddSingleSupplierModalProps> = ({
@@ -1000,6 +1001,7 @@ export const AddSingleSupplierModal: React.FC<AddSingleSupplierModalProps> = ({
   onClose,
   targetBox,
   onAdd,
+  initialSupplierName,
 }) => {
   const [supplierName, setSupplierName] = useState<string>('');
   const [docNo, setDocNo] = useState<string>('');
@@ -1011,14 +1013,14 @@ export const AddSingleSupplierModal: React.FC<AddSingleSupplierModalProps> = ({
   React.useEffect(() => {
     if (isOpen) {
       const nextNo = targetBox.files.length + 1;
-      setSupplierName('');
+      setSupplierName(initialSupplierName || '');
       setDocNo('');
       setCheckNo('');
       setEnvelopeLabel(`الظرف ${nextNo}`);
       setYear(targetBox.primaryYear);
       setNotes(targetBox.titleAr);
     }
-  }, [isOpen, targetBox]);
+  }, [isOpen, targetBox, initialSupplierName]);
 
   if (!isOpen) return null;
 

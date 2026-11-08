@@ -7,6 +7,7 @@ export interface ArchiveFileRecord {
   year: number;
   notes: string;
   amountEgp?: number;
+  isChecked?: boolean;
 }
 
 export interface ArchiveBox {

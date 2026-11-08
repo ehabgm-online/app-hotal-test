@@ -33,6 +33,8 @@ import {
   Tablet,
   Trash2,
   X,
+  XCircle,
+  Filter,
 } from 'lucide-react';
 import {
   ARCHIVE_BOXES,
@@ -43,7 +45,7 @@ import {
   normalizeArabicSearch,
 } from './data/archiveData';
 import { BoxQrCode, Code128Barcode } from './components/BoxCodes';
-import { PrintMode, PrintSheet } from './components/PrintSheet';
+import { PrintMode, PrintSheet, SupplierAuditItem, SupplierAuditLocation } from './components/PrintSheet';
 import { QrModal } from './components/QrModal';
 import {
   AddSingleSupplierModal,
@@ -53,7 +55,14 @@ import {
   EditFileRecordModal,
 } from './components/BoxEditorModals';
 import { downloadStandaloneHtml } from './utils/singleFileExporter';
-import { matchesBilingual, getSupplierBilingualInfo } from './utils/bilingualSearch';
+import {
+  matchesBilingual,
+  matchesArchiveRecord,
+  scoreArchiveRecord,
+  getSupplierBilingualInfo,
+  getBilingualFileLabel,
+} from './utils/bilingualSearch';
+import { HighlightMatch } from './components/HighlightMatch';
 import {
   subscribeToFirestoreBoxes,
   saveBoxToCloud,
@@ -64,7 +73,7 @@ import {
   getLocalCachedBoxes,
 } from './services/firestoreArchive';
 
-type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'qrcodes';
+type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'qrcodes' | 'suppliers';
 type YearFilter = 'all' | number;
 type IntraSearchScope = 'current-box' | 'same-year';
 
@@ -73,6 +82,8 @@ interface FlattenedRecord extends ArchiveFileRecord {
   boxCode: string;
   boxTitle: string;
   boxCategory: string;
+  _searchScore?: number;
+  _isExactMatch?: boolean;
 }
 
 function loadStoredBoxes(): ArchiveBox[] {
@@ -94,6 +105,9 @@ export function App() {
   const [searchBoxFilter, setSearchBoxFilter] = useState<number | 'all'>('all');
   const [intraBoxQuery, setIntraBoxQuery] = useState<string>('');
   const [intraSearchScope, setIntraSearchScope] = useState<IntraSearchScope>('current-box');
+  const [supplierDirectoryQuery, setSupplierDirectoryQuery] = useState<string>('');
+  const [supplierStatusFilter, setSupplierStatusFilter] = useState<'all' | 'found' | 'missing'>('all');
+  const [prefilledSupplierName, setPrefilledSupplierName] = useState<string>('');
 
   // UI & Print & Modal states
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
@@ -319,6 +333,37 @@ export function App() {
     }
   };
 
+  // Toggle audit check (green highlight / found status) on a supplier record
+  const handleToggleRecordCheck = async (boxId: number, fileNo: number) => {
+    let boxToSave: ArchiveBox | null = null;
+    setBoxes((prev) => {
+      const updated = prev.map((b) => {
+        if (b.id !== boxId) return b;
+        const nb = {
+          ...b,
+          files: b.files.map((f) => {
+            if (f.fileNo !== fileNo) return f;
+            return {
+              ...f,
+              isChecked: !f.isChecked,
+            };
+          }),
+        };
+        boxToSave = nb;
+        return nb;
+      });
+      cacheBoxesLocally(updated);
+      return updated;
+    });
+    if (boxToSave) {
+      try {
+        await saveBoxToCloud(boxToSave);
+      } catch (e) {
+        console.error('Failed to sync check state:', e);
+      }
+    }
+  };
+
   // Add Single Supplier Record
   const handleAddSingleRecord = async (boxId: number, newRecord: ArchiveFileRecord) => {
     let boxToSave: ArchiveBox | null = null;
@@ -455,6 +500,160 @@ export function App() {
     return set.size;
   }, [yearFilteredRecords]);
 
+  // Comprehensive Suppliers Directory Index & Audit
+  const suppliersDirectoryList = useMemo<SupplierAuditItem[]>(() => {
+    const map = new Map<string, SupplierAuditLocation[]>();
+
+    for (const rec of allFlattenedRecords) {
+      const name = (rec.supplierName || 'غير محدد').trim();
+      if (!map.has(name)) {
+        map.set(name, []);
+      }
+      map.get(name)!.push({
+        boxId: rec.boxId,
+        boxTitle: rec.boxTitle,
+        boxCode: rec.boxCode,
+        fileNo: rec.fileNo,
+        envelopeLabel: rec.envelopeLabel,
+        docNo: rec.docNo,
+        checkNo: rec.checkNo,
+        year: rec.year,
+        notes: rec.notes,
+      });
+    }
+
+    const items: SupplierAuditItem[] = Array.from(map.entries()).map(([supplierName, locations]) => {
+      const bi = getSupplierBilingualInfo(supplierName);
+      return {
+        supplierName,
+        secondaryName: bi.secondary,
+        isFound: locations.length > 0,
+        locations,
+        totalFiles: locations.length,
+      };
+    });
+
+    const masterListUserSuppliers = [
+      "A.M Foods", "Advanced Trading & Marketi", "Ahmed Saied Moh. Hafez", "Al Gezira for Imp & Exp",
+      "Al Mansour Co. For Trading", "AL MOSTALA FOR TRADING&S (Al Mostafa For Trading & S)", "Al Safy Foods",
+      "Al Suhagy For Food Indust", "Amico Of Egypt", "Arabian co For FoodIndust", "Arma Trading",
+      "AYMAN AFANDY CO.", "Bagheera", "Beirut Co Dairy Cheese S", "Cairo Three For distribut",
+      "Egy Swiss Food Company", "Egypt Bakery Stores", "Egyptian Arab Group For T", "Egyptian Co. For Advanced",
+      "Egyptian Industrial Group", "El Ansary Trading & contra", "El Badr For Trading & Dist",
+      "EL MAMLKA TRADING & SUPPL", "European Paradise Import&", "Farm Cheese", "Food Box For Supplies",
+      "Food House For Food Indus", "Food Master", "Food Staff Trading", "Foodbrand", "Gelafco Sittin Group",
+      "Mamd", "GULF GROUP TRADING & DIST", "H. G Co. For Investment &", "Halwani Bros Co",
+      "Hero For Food Industries", "International Co. for Agr", "International Co. For Foo", "Marina Suppling",
+      "Mido International Tradin", "Moura For Food Industry", "Nasr Khalil Kafafy", "Nestle Water Egypt",
+      "Pepsi Cola Misr", "PETRO", "Port Said Co (Soudanco)", "Prime Foods", "QUANTA IMPORT & TRADE",
+      "Quatro For Import & Expor", "Reach Trading & Marketing", "Regina Co For Pasta&Food",
+      "Salah Eldin Eid Helmy.", "Samir Mohamed Ali Heidar", "SAMO TRADING", "Super Pack For Food Indus",
+      "The Arabic House For Supp", "Tiba For Trade And Distri", "Union Co. For Fish Tradin",
+      "Union Trading Company", "United Co. For Food", "Universal Co .For Edible", "Wadi Food Industries Co.",
+      "YAHIA OTHMAN ABD EL MALEK", "Zenab Ibrahim Abdel Ghani", "تسويق للتجارة والتوزيع", "ريتش للتجارة والتسويق",
+      "منجر للأسواق الحرة", "مامبيا مصر", "شركة شيلار / Ritz Carlton Pen"
+    ];
+
+    for (const uSup of masterListUserSuppliers) {
+      if (!items.some((x) => matchesBilingual(x.supplierName, uSup))) {
+        const bi = getSupplierBilingualInfo(uSup);
+        items.push({
+          supplierName: uSup,
+          secondaryName: bi.secondary,
+          isFound: false,
+          locations: [],
+          totalFiles: 0,
+        });
+      }
+    }
+
+    // Sort: Found (green) first, then missing (red), then alphabetically
+    items.sort((a, b) => {
+      if (a.isFound !== b.isFound) {
+        return a.isFound ? -1 : 1;
+      }
+      return a.supplierName.localeCompare(b.supplierName);
+    });
+
+    return items;
+  }, [allFlattenedRecords]);
+
+  const filteredSuppliersDirectory = useMemo(() => {
+    let list = suppliersDirectoryList;
+
+    if (supplierStatusFilter === 'found') {
+      list = list.filter((s) => s.isFound);
+    } else if (supplierStatusFilter === 'missing') {
+      list = list.filter((s) => !s.isFound);
+    }
+
+    const q = supplierDirectoryQuery.trim();
+    if (!q) return list;
+
+    return list.filter((s) =>
+      matchesBilingual(s.supplierName, q) ||
+      (s.secondaryName && matchesBilingual(s.secondaryName, q)) ||
+      s.locations.some(
+        (loc) =>
+          loc.boxCode.toLowerCase().includes(q.toLowerCase()) ||
+          loc.boxTitle.includes(q) ||
+          loc.envelopeLabel.includes(q) ||
+          (loc.docNo && loc.docNo.includes(q))
+      )
+    );
+  }, [suppliersDirectoryList, supplierStatusFilter, supplierDirectoryQuery]);
+
+  // Supplier Audit KPI Summary Statistics
+  const suppliersAuditStats = useMemo(() => {
+    const total = suppliersDirectoryList.length;
+    const found = suppliersDirectoryList.filter((s) => s.isFound).length;
+    const missing = suppliersDirectoryList.filter((s) => !s.isFound).length;
+    const totalArchivedFiles = suppliersDirectoryList.reduce((acc, s) => acc + s.totalFiles, 0);
+    const coveragePercent = total > 0 ? Math.round((found / total) * 100) : 0;
+    return { total, found, missing, totalArchivedFiles, coveragePercent };
+  }, [suppliersDirectoryList]);
+
+  // Export Complete Suppliers Audit Manifest to Excel / CSV
+  const handleExportSuppliersAuditCsv = () => {
+    const headers = [
+      'م',
+      'اسم المورد / الشركة',
+      'الاسم التجاري / المعرب',
+      'حالة التواجد بالصناديق (مطابقة)',
+      'إجمالي الملفات بالأرشيف',
+      'أرقام الصناديق المتواجد بها',
+      'تفاصيل الأظرف والمستندات والسنوات',
+    ];
+    const rows = filteredSuppliersDirectory.map((s, idx) => {
+      const statusText = s.isFound ? 'متواجد بالصناديق (أخضر)' : 'غير متواجد بالصناديق (أحمر)';
+      const boxesStr = s.locations.map((l) => `${l.boxTitle} [${l.boxCode}]`).join(' | ');
+      const envsStr = s.locations
+        .map((l) => `${l.envelopeLabel} (سند: ${l.docNo || '—'} / شيك: ${l.checkNo || '—'} / سنة: ${l.year})`)
+        .join(' | ');
+      return [
+        idx + 1,
+        `"${s.supplierName.replace(/"/g, '""')}"`,
+        `"${(s.secondaryName || '—').replace(/"/g, '""')}"`,
+        `"${statusText}"`,
+        s.totalFiles,
+        `"${(boxesStr || 'لا يوجد').replace(/"/g, '""')}"`,
+        `"${(envsStr || 'غير مؤرشف').replace(/"/g, '""')}"`,
+      ].join(',');
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `كشف_حصر_وتدقيق_الموردين_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('تم تصدير كشف تدقيق الموردين بالكامل بنجاح (Excel / CSV)');
+  };
+
   // Active box object
   const activeBox = useMemo<ArchiveBox>(() => {
     return boxes.find((b) => b.id === selectedBoxId) || boxes[0] || ARCHIVE_BOXES[0];
@@ -464,24 +663,43 @@ export function App() {
     return boxes.find((b) => b.id === printTargetBoxId) || activeBox;
   }, [boxes, printTargetBoxId, activeBox]);
 
-  // Global Smart Search results with Intelligent Bilingual (عربي ⇄ English) Support
+  // Global Smart Search results with High-Precision Relevance Ranking
   const smartSearchResults = useMemo<FlattenedRecord[]>(() => {
     const q = globalSearchQuery.trim();
-    return yearFilteredRecords.filter((rec) => {
+    if (!q) {
+      return yearFilteredRecords.filter((rec) => {
+        if (searchBoxFilter !== 'all' && rec.boxId !== searchBoxFilter) {
+          return false;
+        }
+        return true;
+      });
+    }
+
+    const scoredItems: FlattenedRecord[] = [];
+
+    for (const rec of yearFilteredRecords) {
       if (searchBoxFilter !== 'all' && rec.boxId !== searchBoxFilter) {
-        return false;
+        continue;
       }
-      if (!q) return true;
-      return (
-        matchesBilingual(rec.supplierName, q) ||
-        matchesBilingual(rec.docNo, q) ||
-        matchesBilingual(rec.checkNo, q) ||
-        matchesBilingual(rec.envelopeLabel, q) ||
-        matchesBilingual(rec.notes, q) ||
-        matchesBilingual(rec.boxTitle, q) ||
-        matchesBilingual(rec.boxCode, q)
-      );
+      const res = scoreArchiveRecord(rec, q);
+      if (res.score > 0) {
+        scoredItems.push({
+          ...rec,
+          _searchScore: res.score,
+          _isExactMatch: res.isExactMatch,
+        });
+      }
+    }
+
+    // Sort by highest relevance score first, then by box, then by fileNo
+    scoredItems.sort((a, b) => {
+      const diff = (b._searchScore || 0) - (a._searchScore || 0);
+      if (diff !== 0) return diff;
+      if (a.boxId !== b.boxId) return a.boxId - b.boxId;
+      return a.fileNo - b.fileNo;
     });
+
+    return scoredItems;
   }, [globalSearchQuery, yearFilteredRecords, searchBoxFilter]);
 
   // Dashboard inline preview search results (top 8 matches when typing on dashboard)
@@ -505,28 +723,51 @@ export function App() {
 
     if (!q) return basePool;
 
-    return basePool.filter(
-      (rec) =>
-        matchesBilingual(rec.supplierName, q) ||
-        matchesBilingual(rec.docNo, q) ||
-        matchesBilingual(rec.checkNo, q) ||
-        matchesBilingual(rec.envelopeLabel, q) ||
-        matchesBilingual(rec.notes, q)
-    );
+    const scoredItems: FlattenedRecord[] = [];
+    for (const rec of basePool) {
+      const res = scoreArchiveRecord(rec, q);
+      if (res.score > 0) {
+        scoredItems.push({
+          ...rec,
+          _searchScore: res.score,
+          _isExactMatch: res.isExactMatch,
+        });
+      }
+    }
+
+    // Sort by highest relevance score first
+    scoredItems.sort((a, b) => {
+      const diff = (b._searchScore || 0) - (a._searchScore || 0);
+      if (diff !== 0) return diff;
+      return a.fileNo - b.fileNo;
+    });
+
+    return scoredItems;
   }, [intraBoxQuery, intraSearchScope, activeBox, allFlattenedRecords, yearFilter]);
 
   // Filtered records for the dedicated focused scan viewer (only this box + search)
   const focusedBoxRecords = useMemo(() => {
     const q = intraBoxQuery.trim();
     if (!q) return activeBox.files;
-    return activeBox.files.filter(
-      (f) =>
-        matchesBilingual(f.supplierName, q) ||
-        matchesBilingual(f.docNo, q) ||
-        matchesBilingual(f.checkNo, q) ||
-        matchesBilingual(f.envelopeLabel, q) ||
-        matchesBilingual(f.notes, q)
-    );
+
+    const scoredItems: Array<{ file: ArchiveFileRecord; score: number }> = [];
+    for (const f of activeBox.files) {
+      const res = scoreArchiveRecord(
+        {
+          ...f,
+          boxTitle: activeBox.titleAr,
+          boxCode: activeBox.code,
+          boxId: activeBox.id,
+        },
+        q
+      );
+      if (res.score > 0) {
+        scoredItems.push({ file: f, score: res.score });
+      }
+    }
+
+    scoredItems.sort((a, b) => b.score - a.score || a.file.fileNo - b.file.fileNo);
+    return scoredItems.map((x) => x.file);
   }, [activeBox, intraBoxQuery]);
 
   // Navigation helpers
@@ -617,6 +858,7 @@ export function App() {
     search: 'البحث الذكي في الموردين والمستندات',
     boxes: `إدارة الصناديق · ${activeBox.titleAr}`,
     qrcodes: 'مركز رموز QR وطباعة ملصقات الباركود',
+    suppliers: 'دليل الموردين الشامل وأماكن تواجدهم',
   };
 
   const maxFilesInAnyBox = useMemo(
@@ -735,7 +977,7 @@ export function App() {
               type="text"
               value={intraBoxQuery}
               onChange={(e) => setIntraBoxQuery(e.target.value)}
-              placeholder={`ابحث داخل ${activeBox.titleAr} بالعربي أو English (المورد، السند، الشيك)...`}
+              placeholder={`ابحث بالعربي أو English (مثل: دومتي / Domty، Image 1، الظرف 1، سند، شيك)...`}
               className="w-full pl-9 pr-10 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-400 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             />
             {intraBoxQuery && (
@@ -797,6 +1039,7 @@ export function App() {
           ) : (
             focusedBoxRecords.map((file, idx) => {
               const biInfo = getSupplierBilingualInfo(file.supplierName);
+              const fileBi = getBilingualFileLabel(file.envelopeLabel, file.fileNo);
               return (
               <div
                 key={file.fileNo}
@@ -809,25 +1052,32 @@ export function App() {
                     </span>
                     <div className="min-w-0">
                       <h3 className="font-display font-bold text-sm sm:text-base text-white leading-snug break-words">
-                        {file.supplierName}
+                        <HighlightMatch text={file.supplierName} query={intraBoxQuery} />
                       </h3>
                       {biInfo.secondary && (
                         <div className="text-[11px] text-blue-300 font-semibold mt-0.5">
-                          {biInfo.secondary}
+                          <HighlightMatch text={biInfo.secondary} query={intraBoxQuery} />
                         </div>
                       )}
                     </div>
                   </div>
-                  <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-amber-300 text-xs font-bold border border-amber-500/20 shrink-0 font-mono-num whitespace-nowrap">
-                    {file.envelopeLabel}
-                  </span>
+                  <div className="flex flex-col items-end shrink-0">
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-amber-300 text-xs font-bold border border-amber-500/20 font-mono-num whitespace-nowrap">
+                      {fileBi.ar}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono mt-0.5" dir="ltr">
+                      {fileBi.en}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800/80">
                   <div className="bg-slate-950/80 rounded-xl p-2 border border-slate-800">
                     <div className="text-[10px] text-slate-400 mb-0.5">رقم السند:</div>
                     <div className="font-mono-num font-bold text-slate-200 truncate flex items-center justify-between">
-                      <span className="text-xs">{file.docNo || '—'}</span>
+                      <span className="text-xs">
+                        <HighlightMatch text={file.docNo || '—'} query={intraBoxQuery} />
+                      </span>
                       {file.docNo && file.docNo !== '—' && (
                         <button
                           type="button"
@@ -847,7 +1097,9 @@ export function App() {
                   <div className="bg-slate-950/80 rounded-xl p-2 border border-slate-800">
                     <div className="text-[10px] text-slate-400 mb-0.5">رقم الشيك:</div>
                     <div className="font-mono-num font-bold text-slate-200 truncate flex items-center justify-between">
-                      <span className="text-xs">{file.checkNo || '—'}</span>
+                      <span className="text-xs">
+                        <HighlightMatch text={file.checkNo || '—'} query={intraBoxQuery} />
+                      </span>
                       {file.checkNo && file.checkNo !== '—' && (
                         <button
                           type="button"
@@ -908,6 +1160,7 @@ export function App() {
           boxes={yearFilteredBoxes}
           activeBox={printTargetBox}
           getBoxUrl={getBoxDirectUrl}
+          suppliersList={filteredSuppliersDirectory}
         />
       </div>
     );
@@ -1031,6 +1284,25 @@ export function App() {
                 <QrCode className="w-4 h-4 shrink-0" />
                 <span>رموز QR والباركود</span>
               </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSection('suppliers');
+                setMobileSidebarOpen(false);
+              }}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                activeSection === 'suppliers'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+              }`}
+            >
+              <span className="flex items-center gap-3 whitespace-nowrap">
+                <Building2 className="w-4 h-4 shrink-0" />
+                <span>دليل الموردين الشامل</span>
+              </span>
+              <span className="text-xs font-mono-num opacity-80">{suppliersDirectoryList.length}</span>
             </button>
           </div>
 
@@ -1573,7 +1845,15 @@ export function App() {
                                   {item.boxTitle}
                                 </td>
                                 <td className="px-4 py-2.5 text-xs text-slate-700 whitespace-nowrap">
-                                  {item.envelopeLabel}
+                                  {(() => {
+                                    const fileBi = getBilingualFileLabel(item.envelopeLabel, item.fileNo);
+                                    return (
+                                      <div>
+                                        <div className="font-semibold text-slate-800">{fileBi.ar}</div>
+                                        <div className="text-[10px] text-slate-500 font-mono" dir="ltr">{fileBi.en}</div>
+                                      </div>
+                                    );
+                                  })()}
                                 </td>
                                 <td className="px-4 py-2.5 font-semibold text-slate-900">
                                   <div>{item.supplierName}</div>
@@ -1801,7 +2081,7 @@ export function App() {
                     type="text"
                     value={globalSearchQuery}
                     onChange={(e) => setGlobalSearchQuery(e.target.value)}
-                    placeholder="اكتب اسم المورد، الشركة، رقم المستند (مثل CCO007)، أو رقم الشيك..."
+                    placeholder="ابحث بالعربي أو الإنجليزي (مثل: دومتي / Domty، Image 1، الظرف 1، سند، شيك)..."
                     className="w-full pr-10 pl-16 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:outline-none focus:border-blue-600"
                     autoFocus
                   />
@@ -1851,6 +2131,29 @@ export function App() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Quick Bilingual Search Suggestion Chips */}
+              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                <span className="text-xs text-slate-500 font-medium ml-1">اقتراحات بحث سريعة (عربي ⇄ English):</span>
+                {[
+                  { label: 'دومتي / Domty', q: 'دومتي' },
+                  { label: 'أميكو / Amico', q: 'Amico' },
+                  { label: 'أرامكس / Aramex', q: 'أرامكس' },
+                  { label: 'بتروتريد / Petrotrade', q: 'Petrotrade' },
+                  { label: 'الظرف 1 / Image 1', q: 'Image 1' },
+                  { label: 'الظرف 2 / Image 2', q: 'الظرف 2' },
+                  { label: 'سنة 2017', q: '2017' },
+                ].map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    onClick={() => setGlobalSearchQuery(chip.q)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-800 transition-colors cursor-pointer border border-slate-200/60"
+                  >
+                    {chip.label}
+                  </button>
+                ))}
               </div>
 
               {/* Status Summary */}
@@ -1935,31 +2238,52 @@ export function App() {
                             </span>
                           </td>
                           <td className="px-4 py-2.5 text-xs text-slate-700 whitespace-nowrap">
-                            <span className="font-mono-num text-slate-400 ml-1">#{rec.fileNo}</span>
-                            {rec.envelopeLabel}
+                            {(() => {
+                              const fileBi = getBilingualFileLabel(rec.envelopeLabel, rec.fileNo);
+                              return (
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-mono-num text-slate-400">#{rec.fileNo}</span>
+                                    <span className="font-semibold text-slate-800">{fileBi.ar}</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 font-mono mt-0.5" dir="ltr">
+                                    {fileBi.en}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="px-4 py-2.5 font-semibold text-slate-900">
-                            <div>{rec.supplierName}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span>
+                                <HighlightMatch text={rec.supplierName} query={globalSearchQuery} />
+                              </span>
+                              {rec._isExactMatch && globalSearchQuery.trim() !== '' && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
+                                  ★ تطابق تام
+                                </span>
+                              )}
+                            </div>
                             {(() => {
                               const bi = getSupplierBilingualInfo(rec.supplierName);
                               return bi.secondary ? (
                                 <div className="text-[11px] text-blue-600 font-normal">
-                                  {bi.secondary}
+                                  <HighlightMatch text={bi.secondary} query={globalSearchQuery} />
                                 </div>
                               ) : null;
                             })()}
                           </td>
                           <td className="px-4 py-2.5 font-mono-num text-xs text-blue-700 whitespace-nowrap">
-                            {rec.docNo}
+                            <HighlightMatch text={rec.docNo} query={globalSearchQuery} />
                           </td>
                           <td className="px-4 py-2.5 font-mono-num text-xs text-slate-700 whitespace-nowrap">
-                            {rec.checkNo}
+                            <HighlightMatch text={rec.checkNo} query={globalSearchQuery} />
                           </td>
                           <td className="px-4 py-2.5 font-mono-num text-xs text-slate-600 whitespace-nowrap">
                             {rec.year}
                           </td>
                           <td className="px-4 py-2.5 text-xs text-slate-500 max-w-xs truncate">
-                            {rec.notes}
+                            <HighlightMatch text={rec.notes || ''} query={globalSearchQuery} />
                           </td>
                           <td className="px-4 py-2.5 whitespace-nowrap">
                             <div className="flex items-center gap-2">
@@ -2153,8 +2477,8 @@ export function App() {
                       }}
                       placeholder={
                         intraSearchScope === 'current-box'
-                          ? `ابحث عن اسم المورد أو رقم المستند داخل ${activeBox.titleAr}...`
-                          : `ابحث عن اسم المورد في جميع صناديق سنة ${
+                          ? `ابحث بالعربي أو English (مثل: دومتي / Domty، Image 1، الظرف 1، سند) في ${activeBox.titleAr}...`
+                          : `ابحث بالعربي أو English في جميع صناديق سنة ${
                               yearFilter !== 'all' ? yearFilter : activeBox.primaryYear
                             }...`
                       }
@@ -2288,21 +2612,40 @@ export function App() {
                     {boxViewRecords.map((row) => {
                       const isHighlighted =
                         intraSearchScope === 'current-box' && highlightedFileNo === row.fileNo;
+                      const fileBi = getBilingualFileLabel(row.envelopeLabel, row.fileNo);
                       return (
                         <div
                           key={`${row.boxId}-${row.fileNo}`}
-                          className={`bg-white rounded-2xl border transition-all p-4 space-y-3 relative flex flex-col justify-between ${
-                            isHighlighted
+                          className={`rounded-2xl border transition-all p-4 space-y-3 relative flex flex-col justify-between ${
+                            row.isChecked
+                              ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-50/40 shadow-xs'
+                              : isHighlighted
                               ? 'border-blue-500 ring-2 ring-blue-500/20 bg-blue-50/20 shadow-md'
-                              : 'border-slate-200 hover:border-blue-300 hover:shadow-xs'
+                              : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-xs'
                           }`}
                         >
                           {/* Card Header Strip */}
                           <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 font-bold text-xs font-mono-num border border-blue-200/60 shadow-2xs">
-                                {row.envelopeLabel}
+                                {fileBi.ar}
                               </span>
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-mono text-[11px] border border-slate-200" dir="ltr">
+                                {fileBi.en}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleRecordCheck(row.boxId, row.fileNo)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+                                  row.isChecked
+                                    ? 'bg-emerald-600 text-white shadow-xs'
+                                    : 'bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800'
+                                }`}
+                                title="التعليم على المورد (تم العثور عليه في الأرشيف المادي)"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>{row.isChecked ? 'تم العثور عليه ✓' : 'تعليم'}</span>
+                              </button>
                               {intraSearchScope === 'same-year' && (
                                 <button
                                   type="button"
@@ -2312,64 +2655,37 @@ export function App() {
                                   {row.boxTitle}
                                 </button>
                               )}
-                              <span className="text-[11px] font-mono-num text-slate-400">
-                                ملف #{row.fileNo}
-                              </span>
                             </div>
-
-                            <div className="flex items-center gap-1">
-                              <span className="text-[11px] font-mono-num font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                                {row.year}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRecordToEdit({
-                                    boxId: row.boxId,
-                                    boxTitle: row.boxTitle,
-                                    record: {
-                                      fileNo: row.fileNo,
-                                      envelopeLabel: row.envelopeLabel,
-                                      supplierName: row.supplierName,
-                                      docNo: row.docNo,
-                                      checkNo: row.checkNo,
-                                      year: row.year,
-                                      notes: row.notes,
-                                    },
-                                  })
-                                }
-                                title="تعديل هذا المورد"
-                                className="w-8 h-8 rounded-lg text-slate-500 hover:text-blue-700 hover:bg-blue-50 flex items-center justify-center transition-colors cursor-pointer"
-                                aria-label={`تعديل ${row.supplierName}`}
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteRecord(row.boxId, row.fileNo)}
-                                title="حذف من الصندوق"
-                                className="w-8 h-8 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors cursor-pointer"
-                                aria-label={`حذف ${row.supplierName}`}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
+                            <span className="text-[11px] font-mono-num text-slate-400">
+                              ملف #{row.fileNo}
+                            </span>
                           </div>
+
+
 
                           {/* Supplier Name - Bold & High Contrast with Bilingual Display */}
                           <div className="space-y-1">
                             <span className="text-[11px] text-slate-400 font-medium block">
                               اسم المورد / الشركة:
                             </span>
-                            <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900 leading-snug break-words">
-                              {row.supplierName}
+                            <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900 leading-snug break-words flex items-center justify-between gap-2">
+                              <span>
+                                <HighlightMatch text={row.supplierName} query={intraBoxQuery} />
+                              </span>
+                              {row._isExactMatch && intraBoxQuery.trim() !== '' && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
+                                  ★ تطابق تام
+                                </span>
+                              )}
                             </h2>
                             {(() => {
                               const bi = getSupplierBilingualInfo(row.supplierName);
                               return bi.secondary ? (
                                 <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 text-xs font-semibold border border-blue-200/60 mt-0.5">
                                   <span className="text-[10px] text-blue-500 font-normal">الاسم المترجم:</span>
-                                  <span>{bi.secondary}</span>
+                                  <span>
+                                    <HighlightMatch text={bi.secondary} query={intraBoxQuery} />
+                                  </span>
                                 </div>
                               ) : null;
                             })()}
@@ -2383,7 +2699,7 @@ export function App() {
                                   رقم المستند
                                 </span>
                                 <span className="font-mono-num text-xs font-bold text-blue-800 truncate block">
-                                  {row.docNo}
+                                  <HighlightMatch text={row.docNo} query={intraBoxQuery} />
                                 </span>
                               </div>
                               {row.docNo !== '—' && (
@@ -2406,8 +2722,8 @@ export function App() {
                                 <span className="text-[10px] text-slate-400 block font-semibold">
                                   رقم الشيك
                                 </span>
-                                <span className="font-mono-num text-xs font-bold text-slate-800 truncate block">
-                                  {row.checkNo}
+                                <span className="font-mono-num text-xs font-bold text-slate-700 truncate block">
+                                  <HighlightMatch text={row.checkNo} query={intraBoxQuery} />
                                 </span>
                               </div>
                               {row.checkNo !== '—' && (
@@ -2477,7 +2793,9 @@ export function App() {
                             <tr
                               key={`${row.boxId}-${row.fileNo}`}
                               className={`transition-colors ${
-                                isHighlighted
+                                row.isChecked
+                                  ? 'bg-emerald-50/80 hover:bg-emerald-100/70 font-medium text-emerald-950'
+                                  : isHighlighted
                                   ? 'bg-amber-50 hover:bg-amber-100/70'
                                   : 'hover:bg-slate-50/90'
                               }`}
@@ -2497,31 +2815,65 @@ export function App() {
                                 </td>
                               )}
                               <td className="px-4 py-2.5 text-xs text-slate-700 whitespace-nowrap">
-                                {row.envelopeLabel}
+                                {(() => {
+                                  const fileBi = getBilingualFileLabel(row.envelopeLabel, row.fileNo);
+                                  return (
+                                    <div>
+                                      <span className="font-semibold text-slate-800">{fileBi.ar}</span>
+                                      <div className="text-[10px] text-slate-500 font-mono" dir="ltr">
+                                        {fileBi.en}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </td>
                               <td className="px-4 py-2.5 font-semibold text-slate-900">
-                                <div>{row.supplierName}</div>
+                                <div className="flex items-center gap-1.5">
+                                  <span>
+                                    <HighlightMatch text={row.supplierName} query={intraBoxQuery} />
+                                  </span>
+                                  {row._isExactMatch && intraBoxQuery.trim() !== '' && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
+                                      ★ تطابق تام
+                                    </span>
+                                  )}
+                                </div>
                                 {(() => {
                                   const bi = getSupplierBilingualInfo(row.supplierName);
                                   return bi.secondary ? (
                                     <div className="text-[11px] text-blue-600 font-normal">
-                                      {bi.secondary}
+                                      <HighlightMatch text={bi.secondary} query={intraBoxQuery} />
                                     </div>
                                   ) : null;
                                 })()}
                               </td>
                               <td className="px-4 py-2.5 font-mono-num text-xs text-blue-700 whitespace-nowrap">
-                                {row.docNo}
+                                <HighlightMatch text={row.docNo} query={intraBoxQuery} />
                               </td>
                               <td className="px-4 py-2.5 font-mono-num text-xs text-slate-700 whitespace-nowrap">
-                                {row.checkNo}
+                                <HighlightMatch text={row.checkNo} query={intraBoxQuery} />
                               </td>
                               <td className="px-4 py-2.5 font-mono-num text-xs text-slate-600 whitespace-nowrap">
                                 {row.year}
                               </td>
-                              <td className="px-4 py-2.5 text-xs text-slate-500">{row.notes}</td>
+                              <td className="px-4 py-2.5 text-xs text-slate-500">
+                                <HighlightMatch text={row.notes || ''} query={intraBoxQuery} />
+                              </td>
                               <td className="px-3 py-2 text-center whitespace-nowrap">
                                 <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleRecordCheck(row.boxId, row.fileNo)}
+                                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+                                      row.isChecked
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800'
+                                    }`}
+                                    title="تعليم أو إزالة التعليم"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>{row.isChecked ? 'تم ✓' : 'تعليم'}</span>
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -2707,6 +3059,367 @@ export function App() {
               </div>
             </div>
           )}
+
+          {/* =========================================================
+              5. COMPREHENSIVE SUPPLIERS DIRECTORY & AUDIT (دليل وتدقيق الموردين)
+             ========================================================= */}
+          {activeSection === 'suppliers' && (
+            <div className="space-y-6">
+              {/* Header with Print & Export Actions */}
+              <section className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5 shadow-xs">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[11px] font-bold">
+                      مطابقة وتدقيق الأرشيف
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">
+                      الصناديق من 1 إلى 13
+                    </span>
+                  </div>
+                  <h2 className="font-display font-black text-xl sm:text-2xl text-slate-950">
+                    دليل وتدقيق قائمة الموردين والشركات
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed">
+                    حصر شامل لجميع الموردين المستخرجين من المستندات ومطابقة أماكن تواجدهم الفعلية داخل الصناديق، مع تمييز المورد المتواجد بـ <strong className="text-emerald-700 font-bold">علامة خضراء (✓)</strong> والمورد غير المتواجد بـ <strong className="text-rose-700 font-bold">علامة حمراء (✕)</strong>.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => triggerPrint('suppliers-audit')}
+                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                    title="طباعة كشف حصر وتدقيق الموردين بالكامل على ورق A4 رسمي"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>طباعة الكشف بالكامل (A4)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportSuppliersAuditCsv}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+                    title="تنزيل شيت إكسيل / CSV يحمل أسماء الموردين وحالة تواجدهم وصناديقهم"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>تصدير شيت إكسيل (CSV)</span>
+                  </button>
+                </div>
+              </section>
+
+              {/* KPI Summary Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                {/* Total Suppliers */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-xs">
+                  <div className="text-xs font-semibold text-slate-500 flex items-center justify-between">
+                    <span>إجمالي الموردين بالكشف</span>
+                    <Building2 className="w-4 h-4 text-slate-400" />
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-black font-mono-num text-slate-900">
+                      {suppliersAuditStats.total}
+                    </span>
+                    <span className="text-xs text-slate-500">مورد / شركة</span>
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-400">
+                    مستخرجون من بيانات المستندات
+                  </div>
+                </div>
+
+                {/* Found Suppliers (Green) */}
+                <div className="bg-emerald-50/60 border-2 border-emerald-300 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-xs">
+                  <div className="text-xs font-bold text-emerald-800 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>متواجدون بالصناديق</span>
+                    </span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-200 animate-pulse" />
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-black font-mono-num text-emerald-700">
+                      {suppliersAuditStats.found}
+                    </span>
+                    <span className="text-xs font-bold text-emerald-800">مورد مؤكد (أخضر)</span>
+                  </div>
+                  <div className="mt-2 text-[11px] text-emerald-700 font-semibold flex items-center gap-1 font-mono-num">
+                    <span>مؤرشف في {suppliersAuditStats.totalArchivedFiles} ملف داخل الصناديق</span>
+                  </div>
+                </div>
+
+                {/* Missing Suppliers (Red) */}
+                <div className="bg-rose-50/60 border-2 border-rose-300 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-xs">
+                  <div className="text-xs font-bold text-rose-800 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <XCircle className="w-4 h-4 text-rose-600" />
+                      <span>غير متواجدين (مفقود)</span>
+                    </span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-4 ring-rose-200" />
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-black font-mono-num text-rose-700">
+                      {suppliersAuditStats.missing}
+                    </span>
+                    <span className="text-xs font-bold text-rose-800">مورد غير مؤرشف (أحمر)</span>
+                  </div>
+                  <div className="mt-2 text-[11px] text-rose-700 font-semibold">
+                    غير مسجلين في الصناديق 1 إلى 13
+                  </div>
+                </div>
+
+                {/* Audit Coverage % */}
+                <div className="bg-blue-50/50 border border-blue-200 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-xs">
+                  <div className="text-xs font-semibold text-blue-800 flex items-center justify-between">
+                    <span>نسبة المطابقة والتغطية</span>
+                    <BarChart3 className="w-4 h-4 text-blue-500" />
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="text-2xl sm:text-3xl font-black font-mono-num text-blue-700">
+                      {suppliersAuditStats.coveragePercent}%
+                    </span>
+                    <span className="text-xs text-blue-700 font-medium">مكتمل بالأرشيف</span>
+                  </div>
+                  <div className="mt-2 w-full bg-blue-200/70 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-blue-600 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${suppliersAuditStats.coveragePercent}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Filter Tabs and Search Bar */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xs">
+                {/* Status Filter Tabs */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3">
+                  <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5 ml-2">
+                    <Filter className="w-3.5 h-3.5 text-slate-500" />
+                    <span>تصفية الحالة:</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSupplierStatusFilter('all')}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      supplierStatusFilter === 'all'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    <span>جميع الموردين</span>
+                    <span className="font-mono-num px-1.5 py-0.2 rounded-md bg-white/20 text-[11px]">
+                      {suppliersAuditStats.total}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSupplierStatusFilter('found')}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      supplierStatusFilter === 'found'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>متواجد بالصناديق (أخضر)</span>
+                    <span className="font-mono-num px-1.5 py-0.2 rounded-md bg-white/30 text-[11px]">
+                      {suppliersAuditStats.found}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSupplierStatusFilter('missing')}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      supplierStatusFilter === 'missing'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200'
+                    }`}
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>غير متواجد (أحمر)</span>
+                    <span className="font-mono-num px-1.5 py-0.2 rounded-md bg-white/30 text-[11px]">
+                      {suppliersAuditStats.missing}
+                    </span>
+                  </button>
+
+                  <div className="mr-auto text-xs text-slate-500 font-mono-num">
+                    المعروض: <strong>{filteredSuppliersDirectory.length}</strong> مورد
+                  </div>
+                </div>
+
+                {/* Instant Search Bar */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={supplierDirectoryQuery}
+                    onChange={(e) => setSupplierDirectoryQuery(e.target.value)}
+                    placeholder="ابحث عن اسم المورد بالعربي أو الإنجليزي (مثل: دومتي، Amico، بيروت، كوانتا، ريتش، شيلار)..."
+                    className="w-full pr-10 pl-20 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:outline-none focus:border-blue-600 shadow-xs transition-colors"
+                  />
+                  {supplierDirectoryQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSupplierDirectoryQuery('')}
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 px-2.5 py-1 text-xs text-slate-600 hover:text-slate-900 bg-slate-200/80 hover:bg-slate-300 rounded-lg cursor-pointer transition-colors"
+                    >
+                      مسح البحث
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Directory & Audit Cards Grid */}
+              {filteredSuppliersDirectory.length === 0 ? (
+                <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center space-y-3">
+                  <Search className="w-10 h-10 text-slate-300 mx-auto" />
+                  <h3 className="font-display font-bold text-slate-800 text-base">
+                    لا توجد نتائج مطابقة لبحثك
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    لم نتمكن من العثور على أي مورد يطابق &quot;{supplierDirectoryQuery}&quot; في وضع التصفية الحالي.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSupplierDirectoryQuery('');
+                      setSupplierStatusFilter('all');
+                    }}
+                    className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold cursor-pointer"
+                  >
+                    إعادة ضبط البحث والتصفية
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {filteredSuppliersDirectory.map((item, idx) => {
+                    const isFound = item.isFound;
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition-all duration-200 border-2 ${
+                          isFound
+                            ? 'bg-white border-emerald-300/90 shadow-xs hover:border-emerald-400 hover:shadow-md'
+                            : 'bg-rose-50/25 border-rose-300/90 shadow-xs hover:border-rose-400 hover:shadow-md'
+                        }`}
+                      >
+                        {/* Top: Header, Status Badge (Green / Red) */}
+                        <div className="space-y-3">
+                          {/* Status Badge & Sequence */}
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            {isFound ? (
+                              <div className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <span>متواجد في الصناديق (أخضر)</span>
+                              </div>
+                            ) : (
+                              <div className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300 text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                                <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                                <span>غير متواجد بالصناديق (أحمر)</span>
+                              </div>
+                            )}
+
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-mono text-[11px] font-bold">
+                              #{idx + 1}
+                            </span>
+                          </div>
+
+                          {/* Supplier Names */}
+                          <div className="space-y-1">
+                            <h3 className="font-display font-extrabold text-base text-slate-950 leading-snug">
+                              {item.supplierName}
+                            </h3>
+                            {item.secondaryName && (
+                              <div className="text-xs text-blue-700 font-semibold flex items-center gap-1">
+                                <span className="text-[10px] text-slate-400 font-normal">الاسم التجاري:</span>
+                                <span>{item.secondaryName}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Bottom: Locations or Missing Alert */}
+                        <div className="space-y-2.5 pt-3 mt-3 border-t border-slate-100">
+                          {isFound ? (
+                            <>
+                              <div className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                                <span className="flex items-center gap-1 text-emerald-800">
+                                  <Boxes className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>أماكن التواجد الفعلية بالأرشيف:</span>
+                                </span>
+                                <span className="font-mono-num font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-md text-[11px]">
+                                  {item.totalFiles} ملف
+                                </span>
+                              </div>
+
+                              <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                                {item.locations.map((loc, lIdx) => (
+                                  <div
+                                    key={lIdx}
+                                    className="bg-slate-50 hover:bg-emerald-50/50 border border-slate-200 hover:border-emerald-300 rounded-xl p-2.5 flex items-center justify-between gap-2 transition-colors"
+                                  >
+                                    <div className="space-y-0.5 min-w-0">
+                                      <div className="text-xs font-bold text-slate-900 truncate">
+                                        {loc.boxTitle} ({loc.boxCode})
+                                      </div>
+                                      <div className="text-[11px] text-slate-600 font-mono flex items-center gap-2 flex-wrap">
+                                        <span className="font-bold text-slate-800">{loc.envelopeLabel}</span>
+                                        {loc.docNo && loc.docNo !== '—' && (
+                                          <span className="text-blue-700 font-semibold">سند: {loc.docNo}</span>
+                                        )}
+                                        {loc.checkNo && loc.checkNo !== '—' && (
+                                          <span className="text-slate-600">شيك: {loc.checkNo}</span>
+                                        )}
+                                        <span>سنة {loc.year}</span>
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => navigateToBox(loc.boxId, loc.fileNo)}
+                                      className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shrink-0 cursor-pointer transition-colors shadow-2xs"
+                                      title={`انتقل إلى ${loc.boxTitle} - ${loc.envelopeLabel}`}
+                                    >
+                                      انتقل للصندوق
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="space-y-2.5">
+                              <div className="text-xs text-rose-800 bg-rose-100/60 rounded-xl p-3 border border-rose-200 space-y-1">
+                                <div className="font-bold flex items-center gap-1.5 text-rose-900">
+                                  <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                  <span>غير مدرج بأي من الصناديق (1 إلى 13)</span>
+                                </div>
+                                <p className="text-[11px] text-rose-700 leading-relaxed">
+                                  هذا المورد مستخرج من بيان المستندات المطلوب مطابقتها، لكنه غير مؤرشف حالياً في الصناديق.
+                                </p>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPrefilledSupplierName(item.supplierName);
+                                  setIsAddSingleModalOpen(true);
+                                }}
+                                className="w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                              >
+                                <Plus className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>أرشفة هذا المورد الآن في {activeBox.titleAr}</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </main>
 
         {/* Quiet Footer */}
@@ -2854,9 +3567,16 @@ export function App() {
       {/* Add Single Supplier Modal */}
       <AddSingleSupplierModal
         isOpen={isAddSingleModalOpen}
-        onClose={() => setIsAddSingleModalOpen(false)}
+        onClose={() => {
+          setIsAddSingleModalOpen(false);
+          setPrefilledSupplierName('');
+        }}
         targetBox={activeBox}
-        onAdd={(newRec) => handleAddSingleRecord(activeBox.id, newRec)}
+        initialSupplierName={prefilledSupplierName}
+        onAdd={(newRec) => {
+          handleAddSingleRecord(activeBox.id, newRec);
+          setPrefilledSupplierName('');
+        }}
       />
 
       {/* Dedicated Print Media Surface */}
@@ -2865,6 +3585,7 @@ export function App() {
         boxes={yearFilteredBoxes}
         activeBox={printTargetBox}
         getBoxUrl={getBoxDirectUrl}
+        suppliersList={filteredSuppliersDirectory}
       />
     </div>
   );
