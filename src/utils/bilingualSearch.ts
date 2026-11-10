@@ -252,6 +252,34 @@ export const BILINGUAL_DICTIONARY: Record<string, { ar: string; en: string }> = 
   mostala: { en: 'Al Mostafa for Trading & Supplies', ar: 'المصطفى للتجارة والتوريدات' },
   'al mostala': { en: 'Al Mostafa for Trading & Supplies', ar: 'المصطفى للتجارة والتوريدات' },
   'al mostafa': { en: 'Al Mostafa for Trading & Supplies', ar: 'المصطفى للتجارة والتوريدات' },
+  gezira: { en: 'El Gezira For Import & Export', ar: 'الجزيرة للاستيراد والتصدير' },
+  'al gezira': { en: 'El Gezira For Import & Export', ar: 'الجزيرة للاستيراد والتصدير' },
+  'el gezira': { en: 'El Gezira For Import & Export', ar: 'الجزيرة للاستيراد والتصدير' },
+  tiba: { en: 'Tiba for Trading and Distribution', ar: 'طيبة للتجارة والتوزيع' },
+  marina: { en: 'MARINA SUPPLI_ING (Marina Suppling)', ar: 'مارينا للتوريدات' },
+  'marina suppling': { en: 'MARINA SUPPLI_ING', ar: 'مارينا للتوريدات' },
+  petro: { en: 'Petrotrade (Commercial Petroleum Services)', ar: 'شركة الخدمات التجارية البترولية - بتروتريد' },
+  'بتروتريد': { en: 'Petrotrade (PETRO)', ar: 'شركة الخدمات التجارية البترولية - بتروتريد' },
+  schiller: { en: 'Schiller / The Ritz-Carlton Pen', ar: 'شركة شيلار / فندق الريتز كارلتون' },
+  'شيلار': { en: 'Schiller / The Ritz-Carlton Pen', ar: 'شركة شيلار / فندق الريتز كارلتون' },
+  'الريتزكارلتون': { en: 'The Ritz-Carlton / Schiller Pen', ar: 'حياه النقابة العامة بفندق الريتزكارلتون' },
+  'ريتزكارلتون': { en: 'The Ritz-Carlton / Schiller Pen', ar: 'فندق الريتزكارلتون' },
+  'el mamlka': { en: 'EL MAMLKA TRADING & SUPPL (مؤسسة ملكة)', ar: 'مؤسسة ملكة للتوريدات' },
+  'ملكة للتوريدات': { en: 'EL MAMLKA TRADING & SUPPL', ar: 'مؤسسة ملكة للتوريدات' },
+  'al safy': { en: 'Al Safy Foods (الصفا للتوريدات)', ar: 'الصفا للتوريدات / الصافي' },
+  'الصفا للتوريدات': { en: 'Al Safy Foods (الصفا للتوريدات)', ar: 'الصفا للتوريدات' },
+  reach: { en: 'Reach Trading & Marketing', ar: 'ريتش للتجارة والتسويق (الشركة الدولية للتسويق)' },
+  'ريتش': { en: 'Reach Trading & Marketing', ar: 'ريتش للتجارة والتسويق' },
+  gelafco: { en: 'Gelafco Sittin Group Mamdouh Sittin', ar: 'جلافكو ستين جروب (ممدوح ستين)' },
+  'جلافكو': { en: 'Gelafco Sittin Group Mamdouh Sittin', ar: 'جلافكو ستين جروب' },
+  'egy swiss': { en: 'EGY Swiss Food Company', ar: 'إيجي سويس للصناعات الغذائية' },
+  'egyptian co for advanced': { en: 'Egyptian Co. for Advanced Projects', ar: 'الشركة المصرية للمشروعات المتقدمة' },
+  'egyptian arab group': { en: 'Egyptian Arab Group for Trade & Consulting', ar: 'المجموعة العربية المصرية للتجارة والاستشارات' },
+  'egyptian industrial group': { en: 'Egyptian Industrial Group', ar: 'المجموعة الصناعية المصرية' },
+  'el ansary': { en: 'EL ANSARY TRADING & CONTRACTING', ar: 'الأنصاري للتجارة والمقاولات' },
+  ansary: { en: 'EL ANSARY TRADING & CONTRACTING', ar: 'الأنصاري للتجارة والمقاولات' },
+  'samir heidar': { en: 'Samir Mohamed Ali Heidar', ar: 'سمير محمد علي حيدر' },
+  'samir mohamed ali heidar': { en: 'Samir Mohamed Ali Heidar', ar: 'سمير محمد علي حيدر' },
   regina: { en: 'Regina Co For Pasta & Food', ar: 'شركة ريجينا للمكرونة والأغذية' },
   'wadi food': { en: 'Wadi Food Industries Co.', ar: 'شركة وادي فود للصناعات الغذائية' },
   soudanco: { en: 'Port Said Co (Soudanco)', ar: 'شركة بورسعيد (سودانكو)' },
@@ -268,8 +296,8 @@ export const BILINGUAL_DICTIONARY: Record<string, { ar: string; en: string }> = 
   bupa: { en: 'Bupa Egypt Insurance', ar: 'بوبا للتأمين' },
   carrefour: { en: 'Carrefour Egypt', ar: 'كارفور مصر' },
   maadi: { en: 'Maadi Development Co.', ar: 'شركة المعادي للتنمية والتعمير' },
-  pepsi: { en: 'Pepsi Cola Egypt', ar: 'بيبسي كولا مصر' },
-  'pepsi coal': { en: 'Pepsi Cola Egypt', ar: 'بيبسي كولا مصر' },
+  pepsi: { en: 'Pepsi Cola Egypt (Pepsi Coal)', ar: 'بيبسي كولا مصر' },
+  'pepsi coal': { en: 'Pepsi Cola Egypt (Pepsi Coal)', ar: 'بيبسي كولا مصر' },
   froneri: { en: 'Froneri Ice Cream Egypt', ar: 'فرونيري آيس كريم مصر' },
   grohe: { en: 'Grohe Trading Limited', ar: 'جروهي للتجارة' },
   maersk: { en: 'Maersk Solution', ar: 'ميرسك للملاحة واللوجستيات' },
@@ -384,6 +412,127 @@ export function transliterateLatinToArabic(input: string): string {
   return cleanArabic(result);
 }
 
+// Canonical Token Stemmer for Egyptian archive business names & abbreviations
+export function canonicalBusinessToken(tok: string): string {
+  let t = tok.toLowerCase().trim();
+  if (!t) return '';
+  // OCR typos
+  if (t === 'coal') return 'cola';
+  if (t === 'mostala') return 'mostafa';
+  if (t === 'suppli_ing' || t === 'suppling' || t === 'supplying' || t === 'supplies' || t === 'suppl') return 'supply';
+  // Prefixes & articles
+  if (t === 'el') return 'al';
+  // Common business contractions & stems
+  if (t === 'trade' || t === 'trading' || t === 'tradin') return 'trade';
+  if (t === 'dist' || t === 'distr' || t === 'distri' || t === 'distrib' || t === 'distribution') return 'distrib';
+  if (t === 'indust' || t === 'industry' || t === 'industries' || t === 'industrial') return 'indust';
+  if (t === 'imp' || t === 'import' || t === 'imports') return 'import';
+  if (t === 'exp' || t === 'export' || t === 'exports') return 'export';
+  if (t === 'impexp' || t === 'impexpor' || t === 'impexport') return 'impexp';
+  if (t === 'int' || t === 'intl' || t === 'intel' || t === 'international') return 'intl';
+  if (t === 'co' || t === 'company' || t === 'corp' || t === 'corporation') return 'co';
+  if (t === 'agr' || t === 'agric' || t === 'agricultural' || t === 'agriculture') return 'agri';
+  if (t === 'foo' || t === 'food' || t === 'foods') return 'food';
+  if (t === 'contra' || t === 'contracting' || t === 'contract') return 'contract';
+  if (t === 'marketi' || t === 'marketing' || t === 'market') return 'market';
+  if (t === 'misr') return 'egypt';
+  if (t === '&' || t === 'and') return 'and';
+  return t;
+}
+
+export function extractCanonicalTokens(str: string): string[] {
+  if (!str) return [];
+  let s = str
+    .replace(/foodbrand/gi, 'food brand')
+    .replace(/foodindust/gi, 'food indust')
+    .replace(/impexp/gi, 'imp exp')
+    .replace(/&/g, ' and ');
+  
+  s = s.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, ' ');
+  const rawTokens = s.split(/\s+/).map((t) => t.trim().toLowerCase()).filter(Boolean);
+  return rawTokens.map(canonicalBusinessToken);
+}
+
+export const KNOWN_EQUIVALENCE_CLUSTERS: string[][] = [
+  ['al gezira', 'el gezira', 'gezira', 'الجزيرة'],
+  ['al mostafa', 'al mostala', 'mostafa', 'mostala', 'المصطفى'],
+  ['tiba', 'طيبة'],
+  ['pepsi coal', 'pepsi cola', 'pepsi', 'بيبسي', 'كولا'],
+  ['marina suppli_ing', 'marina suppling', 'marina', 'مارينا'],
+  ['international co for agr', 'int co for agricultural', 'intel co for agric', 'الدولية للتنمية والإنتاج الزراعي', 'الشركة الدولية الزراعية'],
+  ['international co for foo', 'international co for food', 'الدولية للصناعات الغذائية'],
+  ['arabian co for foodindust', 'arabian co for food industries', 'domty', 'دومتي', 'العربية للصناعات الغذائية'],
+  ['foodbrand', 'food brand', 'فود براند'],
+  ['petro', 'petrotrade', 'بتروتريد', 'الخدمات التجارية البترولية', 'بترو'],
+  ['ritz carlton', 'ritz', 'schiller', 'شيلار', 'الريتزكارلتون', 'ريتز'],
+  ['el mamlka', 'mamlka', 'ملكة للتوريدات', 'مؤسسة ملكة', 'ملكة'],
+  ['al safy', 'safy', 'الصفا للتوريدات', 'الصفا', 'الصافي'],
+  ['reach trading marketing', 'reach', 'international trading marketing', 'ريتش للتجارة والتسويق', 'ريتش'],
+  ['gelafco sittin group', 'gelafco', 'mamdouh sittin', 'mamd', 'جلافكو'],
+  ['egy swiss food company', 'egy swiss', 'ايجي سويس'],
+  ['egyptian co for advanced', 'egyptian co for advanced projects', 'المصرية للمشروعات المتقدمة'],
+  ['egyptian arab group for t', 'egyptian arab group for trade', 'المجموعة العربية المصرية'],
+  ['egyptian industrial group', 'المجموعة الصناعية المصرية'],
+  ['el ansary trading contra', 'el ansary', 'al ansary', 'الأنصاري'],
+  ['el badr for trading dist', 'el badr', 'al badr', 'البدر'],
+  ['al mansour co for trading', 'al mansour', 'المنصور'],
+  ['amico of egypt', 'amico', 'أميكو'],
+  ['arma trading', 'arma', 'أرما'],
+  ['ayman afandy', 'أيمن أفندي'],
+  ['bagheera', 'باغيرا', 'باجيرا'],
+  ['beirut co dairy cheese', 'beirut co', 'شركة بيروت'],
+  ['cairo three', 'كايرو ثري'],
+  ['farm cheese', 'فارم تشيز'],
+  ['food box for supplies', 'food box', 'فود بوكس'],
+  ['food house for food indus', 'food house', 'فود هاوس'],
+  ['food master', 'food master', 'فود ماستر'],
+  ['food staff trading', 'food staff', 'فود ستاف'],
+  ['gulf group trading dist', 'gulf group', 'مجموعة الخليج'],
+  ['h g co for investment', 'h g co', 'h g', 'إتش جي'],
+  ['halwani bros co', 'halwani', 'حلواني إخوان'],
+  ['hero for food industries', 'hero', 'هيرو'],
+  ['moura for food industry', 'moura', 'مورا'],
+  ['samir mohamed ali heidar', 'سمير محمد علي حيدر'],
+  ['the arabic house for supp', 'the arabic house', 'البيت العربي'],
+];
+
+export function checkClusterMatch(targetText: string, searchQuery: string): boolean {
+  if (!targetText || !searchQuery) return false;
+  const normT = targetText.toLowerCase();
+  const normQ = searchQuery.toLowerCase();
+  for (const cluster of KNOWN_EQUIVALENCE_CLUSTERS) {
+    const tMatches = cluster.some((item) => normT.includes(item));
+    const qMatches = cluster.some((item) => normQ.includes(item));
+    if (tMatches && qMatches) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const STOP_TOKENS = new Set(['for', 'and', 'the', 'and', 'و', 'في', 'من', 'co', 'company', 'corp']);
+
+export function checkTokenSubsetMatch(targetText: string, searchQuery: string): boolean {
+  if (!targetText || !searchQuery) return false;
+  const tTokens = extractCanonicalTokens(targetText).filter((t) => !STOP_TOKENS.has(t) && t.length >= 2);
+  const qTokens = extractCanonicalTokens(searchQuery).filter((t) => !STOP_TOKENS.has(t) && t.length >= 2);
+
+  if (qTokens.length === 0 || tTokens.length === 0) return false;
+
+  const allQInT = qTokens.every((qt) => tTokens.includes(qt));
+  if (allQInT) return true;
+
+  const allTInQ = tTokens.every((tt) => qTokens.includes(tt));
+  if (allTInQ) return true;
+
+  const common = qTokens.filter((qt) => tTokens.includes(qt));
+  if (common.length >= 2 && (common.length / Math.min(qTokens.length, tTokens.length)) >= 0.6) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Intelligent Single-Field Bilingual Matcher (Strict Precision)
  */
@@ -420,7 +569,17 @@ export function matchesBilingual(targetText: string, searchQuery: string): boole
     if (cleanQueryEn.length >= 3 && cleanTargetEn.includes(cleanQueryEn)) return true;
   }
 
-  // 4. Dictionary Alias Cross-Matching
+  // 4. Known Equivalence Cluster Match
+  if (checkClusterMatch(targetText, searchQuery)) {
+    return true;
+  }
+
+  // 5. Canonical Token Subset Match
+  if (checkTokenSubsetMatch(targetText, searchQuery)) {
+    return true;
+  }
+
+  // 6. Dictionary Alias Cross-Matching
   for (const [key, val] of Object.entries(BILINGUAL_DICTIONARY)) {
     const dictEnClean = cleanEnglish(val.en);
     const dictArClean = cleanArabic(val.ar);
@@ -705,6 +864,20 @@ export function scoreArchiveRecord(
         kwScore = Math.max(kwScore, 650);
         kwField = 'supplierName';
       }
+    }
+
+    // Check Known Equivalence Cluster Match
+    if (kwScore === 0 && checkClusterMatch(record.supplierName, kw)) {
+      kwScore = Math.max(kwScore, 950);
+      kwField = 'supplierCluster';
+      if (!matchType) matchType = 'exact-supplier';
+    }
+
+    // Check Canonical Token Match
+    if (kwScore === 0 && checkTokenSubsetMatch(record.supplierName, kw)) {
+      kwScore = Math.max(kwScore, 850);
+      kwField = 'supplierCanonical';
+      if (!matchType) matchType = 'supplier-word';
     }
 
     // D. Check Bilingual Dictionary & Secondary Names
