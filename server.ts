@@ -48,7 +48,7 @@ function buildHeuristicAiSearch(query: string) {
     targetBoxNumber = parseInt(boxMatch[1], 10);
   }
 
-  const yearMatch = q.match(/\b(2017|2019|2021)\b/);
+  const yearMatch = q.match(/\b(2016|2017|2019|2021)\b/);
   if (yearMatch) {
     targetYear = parseInt(yearMatch[1], 10);
   }
@@ -57,6 +57,103 @@ function buildHeuristicAiSearch(query: string) {
     fileType = 'check';
   } else if (q.includes('سند') || q.includes('مستند') || q.includes('doc')) {
     fileType = 'doc';
+  }
+
+  // 2016 Core Archive Mappings
+  if (q.includes('غزل') || q.includes('نسيج') || q.includes('spinning') || q.includes('weaving')) {
+    return {
+      targetSupplierName: 'Misr Spinning & Weaving Trading Co. (شركة مصر لتجارة الغزل والنسيج)',
+      alternateSearchTerms: ['Misr Spinning', 'الغزل والنسيج', 'شركة مصر للغزل'],
+      targetBoxNumber: targetBoxNumber || 101,
+      targetYear: targetYear || 2016,
+      fileType,
+      directAnswerAr: 'تتواجد ملفات ومستندات شركة مصر لتجارة الغزل والنسيج في صندوق 1 لسنة 2016، الملف رقم 1.',
+      suggestedQueries: ['صندوق 1 2016', 'سنة 2016', 'الأمل للتوريدات الفندقية'],
+    };
+  }
+
+  if (q.includes('مغسل') || q.includes('عزب') || q.includes('laundry')) {
+    return {
+      targetSupplierName: 'Ehab Fathy Azab - Laundry (إيهاب فتحي عزب - مغسلة)',
+      alternateSearchTerms: ['Ehab Fathy Azab', 'Laundry', 'إيهاب عزب', 'مغسلة'],
+      targetBoxNumber: targetBoxNumber || 104,
+      targetYear: targetYear || 2016,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات وحسابات المغسلة للمورد إيهاب فتحي عزب في صندوق 4 لسنة 2016، الملف 1 و 9 و 28.',
+      suggestedQueries: ['صندوق 4 2016', 'اليونيون 2016', 'مؤسسة الإيمان'],
+    };
+  }
+
+  if (q.includes('ايديولوجي') || q.includes('أيديولوجي') || q.includes('idealogy')) {
+    return {
+      targetSupplierName: 'Idealogy Co. for imp and Exp (شركة أيديولوجي للاستيراد والتصدير)',
+      alternateSearchTerms: ['Idealogy', 'IPool', 'أيديولوجي'],
+      targetBoxNumber: targetBoxNumber || 102,
+      targetYear: targetYear || 2016,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات شركة أيديولوجي للاستيراد والتصدير في صندوق 2 لسنة 2016، الظرف 1 (مستند رقم 1234).',
+      suggestedQueries: ['صندوق 2 2016', 'محمد عزيز صراف عام', 'مخازن المخابز المصرية'],
+    };
+  }
+
+  if (q.includes('الوفاق') || q.includes('wefaq') || q.includes('wafa')) {
+    return {
+      targetSupplierName: 'El Wafa Group / Wefaq Logistics (مجموعة الوفاق)',
+      alternateSearchTerms: ['El Wafa Group', 'Wefaq Logistics', 'مجموعة الوفاق', 'CWA 005'],
+      targetBoxNumber: targetBoxNumber || 106,
+      targetYear: targetYear || 2016,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات وفواتير مجموعة الوفاق في صندوق 6 لسنة 2016، الملف رقم 1 (سند CWA 005).',
+      suggestedQueries: ['صندوق 6 2016', 'المتحدة للأغذية', 'ماريوت القاهرة'],
+    };
+  }
+
+  if (q.includes('قرطاسي') || q.includes('فؤاد') || q.includes('fouad stationary')) {
+    return {
+      targetSupplierName: 'Fouad Stationary (فؤاد للأدوات المكتبية والقرطاسية)',
+      alternateSearchTerms: ['Fouad Stationary', 'فؤاد للقرطاسية', 'CFO 002'],
+      targetBoxNumber: targetBoxNumber || 103,
+      targetYear: targetYear || 2016,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات فؤاد للقرطاسية في صندوق 3 وصندوق 7 لسنة 2016، الظرف 1 (سند CFO 002).',
+      suggestedQueries: ['صندوق 3 2016', 'صندوق 7 2016', 'زيروكس مصر'],
+    };
+  }
+
+  if (q.includes('نقاب') || q.includes('تأمين صحي') || q.includes('syndicate') || q.includes('riachy')) {
+    return {
+      targetSupplierName: 'شيكات النقابة العامة والتأمين الصحي فندق النيل ريتز كارلتون',
+      alternateSearchTerms: ['General Syndicate', 'Health Insurance', 'Samira Riachy', 'نقابة', 'تأمين صحي'],
+      targetBoxNumber: targetBoxNumber || 107,
+      targetYear: targetYear || 2016,
+      fileType: 'check',
+      directAnswerAr: 'تتواجد شيكات ومستندات النقابة العامة والتأمين الصحي في صندوق 7 لسنة 2016.',
+      suggestedQueries: ['صندوق 7 2016', 'نقابة التجاريين', 'تكنو برنت'],
+    };
+  }
+
+  if (q.includes('زيروكس') || q.includes('xerox')) {
+    return {
+      targetSupplierName: 'Xerox Egypt (زيروكس مصر)',
+      alternateSearchTerms: ['Xerox Egypt', 'زيروكس', 'زيروكس مصر', 'Xerox'],
+      targetBoxNumber: targetBoxNumber || 108,
+      targetYear: targetYear || 2016,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات وفواتير شركة زيروكس مصر (Xerox Egypt) في صندوق 8 لسنة 2016 (الظروف 1 إلى 4).',
+      suggestedQueries: ['صندوق 8 2016', 'فواتير زيروكس', 'سنة 2016'],
+    };
+  }
+
+  if (q.includes('اوليو') || q.includes('أوليو') || q.includes('olio')) {
+    return {
+      targetSupplierName: 'Olio Food Products (أوليو للمنتجات الغذائية)',
+      alternateSearchTerms: ['Olio Food', 'اوليو', 'أوليو', 'Olio'],
+      targetBoxNumber: targetBoxNumber || 109,
+      targetYear: targetYear || 2016,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات وفواتير شركة أوليو للمنتجات الغذائية في صندوق 9 لسنة 2016 (الظروف 1 إلى 4).',
+      suggestedQueries: ['صندوق 9 2016', 'أوليو للأغذية', 'سنة 2016'],
+    };
   }
 
   if (q.includes('دومتي') || q.includes('domty')) {
@@ -316,9 +413,21 @@ app.post('/api/ai-search', async (req, res) => {
   const customApiKey = (req.headers['x-custom-api-key'] || req.body?.apiKey || '') as string;
   const customModel = (req.headers['x-ai-model'] || req.body?.model || '') as string;
 
-  const systemPrompt = `أنت المساعد الذكي لنظام الأرشيف الإلكتروني لشركة فندقية ومستنداتها (صناديق من 1 إلى 13).
-مهمتك تحليل استعلام المستخدم (بالعربي أو بالإنجليزي أو بالعامية أو مع أخطاء إملائية) واستخراج نية البحث بدقة، مع تصحيح الأخطاء الإملائية والترجمة الذكية.
+  const systemPrompt = `أنت المساعد الذكي لنظام الأرشيف الإلكتروني لشركة فندقية ومستنداتها (صناديق 2016، 2017، 2019، 2021).
+مهمتك تحليل استعلام المستخدم (بالعربي أو بالإنجليزي أو بالعامية أو مع أخطاء إملائية) واستخراج نية البحث بدقة، مع تصحيح الأخطاء الإملائية والترجمة الذكية وتحديد مكان حفظ الملفات والصناديق.
 الصناديق تحتوي على:
+[أرشيف سنة 2016 - فندق النيل ريتز كارلتون]:
+- صندوق 1 (2016): حسابات الموردين (مصر لتجارة الغزل والنسيج، المصرية للمشروعات السياحية، الأمل للتوريدات الفندقية، الدار العربية للتجارة)
+- صندوق 2 (2016): موردين ومستندات (أيديولوجي Idealogy، مخازن المخابز المصرية، محمد عزيز صراف عام، إنسايت Insight، بترو، كاشيون)
+- صندوق 3 (2016): موردين (فؤاد للقرطاسية Fouad Stationary، الوادي للبلاستيك، موباكو، إيجيست كلارك، زيروكس مصر Xerox)
+- صندوق 4 (2016): حسابات الموردين وخدمات المغسلة (إيهاب فتحي عزب - مغسلة، مؤسسة الإيمان، شركة التداول المتحدة / اليونيون، المصرية للهندسة والتكنولوجيا)
+- صندوق 5 (2016): موردين (أحمد مجدي محمد - ألفا تريد للتوريدات العامة، شركة مصر المستقبل، أحمد فتوح، محمود إبراهيم مبروك، علي علي التوني)
+- صندوق 6 (2016): موردين (مجموعة الوفاق El Wafa Group / Wefaq، المتحدة للصناعات الغذائية، جي دبليو ماريوت القاهرة، المصطفى للتجارة)
+- صندوق 7 (2016): موردين (فؤاد للأدوات المكتبية، فارما سايبيتا Pharma Scienta، مورينو للتوريدات العامة، نالكو مصر المحدودة Nalco)
+- صندوق 8 (2016): حصر المستندات والشيكات (الهيئة العامة للتأمين الصحي، شيكات النقابة العامة بفندق النيل ريتز كارلتون، سميرة ريتشي Samira Riachy)
+- صندوق 9 (2016): موردين (زيروكس مصر، ماستر تريدنج، أوليو للصناعات الغذائية Olio Food، كابل نتورك)
+
+[أرشيف السنوات 2017 / 2019 / 2021]:
 - صندوق 1: ملخص شيكات ومستندات 2017 (CEMO، محمد عزيز، تيبس TIP'S)
 - صندوق 2: موردين متنوعين 2017 (سمير محمد علي حيدر، عمرو عطية، منير مكار، عصام جعفر)
 - صندوق 3: موردين 2017 (إيجي سويس، فارم تشيز، المجموعة الصناعية المصرية، المصرية للمشروعات المتقدمة، كلاريتي، كومبارك)

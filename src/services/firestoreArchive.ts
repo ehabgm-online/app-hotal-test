@@ -18,6 +18,49 @@ export function getBoxDocId(boxId: number): string {
 }
 
 /**
+ * Deep sanitization function ensuring EVERY box and file record has valid fields
+ * preventing any runtime TypeError or blank screen crash.
+ */
+export function sanitizeArchiveBox(raw: any, fallbackId: number): ArchiveBox {
+  const id = typeof raw?.id === 'number' ? raw.id : fallbackId;
+  const masterFallback = ARCHIVE_BOXES.find((b) => b.id === id);
+
+  const safeYears: number[] =
+    Array.isArray(raw?.years) && raw.years.length > 0
+      ? raw.years.map((y: any) => Number(y) || 2017)
+      : masterFallback?.years || [2017];
+
+  const safePrimaryYear =
+    typeof raw?.primaryYear === 'number'
+      ? raw.primaryYear
+      : safeYears[0] || masterFallback?.primaryYear || 2017;
+
+  const rawFiles = Array.isArray(raw?.files) ? raw.files : masterFallback?.files || [];
+  const safeFiles = rawFiles.map((f: any, idx: number) => ({
+    fileNo: typeof f?.fileNo === 'number' ? f.fileNo : idx + 1,
+    envelopeLabel: String(f?.envelopeLabel || `الظرف ${idx + 1}`),
+    supplierName: String(f?.supplierName || 'غير محدد'),
+    docNo: String(f?.docNo || '—'),
+    checkNo: String(f?.checkNo || '—'),
+    year: typeof f?.year === 'number' ? f.year : safePrimaryYear,
+    notes: String(f?.notes || ''),
+    amountEgp: typeof f?.amountEgp === 'number' ? f.amountEgp : undefined,
+  }));
+
+  return {
+    id,
+    code: String(raw?.code || masterFallback?.code || `BOX-${id}`),
+    barcodeValue: String(raw?.barcodeValue || masterFallback?.barcodeValue || `ARC-BOX-${id}`),
+    titleAr: String(raw?.titleAr || masterFallback?.titleAr || `صندوق ${id}`),
+    subtitleAr: String(raw?.subtitleAr || masterFallback?.subtitleAr || ''),
+    categoryScope: String(raw?.categoryScope || masterFallback?.categoryScope || 'أرشيف عام'),
+    primaryYear: safePrimaryYear,
+    years: safeYears,
+    files: safeFiles,
+  };
+}
+
+/**
  * Cache boxes locally for instant offline loading and SSR safety
  */
 export function cacheBoxesLocally(boxes: ArchiveBox[]): void {
@@ -31,7 +74,7 @@ export function cacheBoxesLocally(boxes: ArchiveBox[]): void {
 }
 
 /**
- * Read cached boxes from localStorage if available
+ * Read cached boxes from localStorage if available with sanitization
  */
 export function getLocalCachedBoxes(): ArchiveBox[] {
   try {
@@ -40,7 +83,7 @@ export function getLocalCachedBoxes(): ArchiveBox[] {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          return parsed.map((b: any, idx: number) => sanitizeArchiveBox(b, idx + 1));
         }
       }
     }
@@ -50,9 +93,11 @@ export function getLocalCachedBoxes(): ArchiveBox[] {
   return ARCHIVE_BOXES;
 }
 
+let hasAutoReconciledOnce = false;
+
 /**
  * Subscribe to Firestore 'boxes' collection in real time.
- * If empty on first connection, it automatically seeds the initial 13 archive boxes.
+ * If empty on first connection, it automatically seeds the initial archive boxes.
  */
 export function subscribeToFirestoreBoxes(
   onUpdate: (boxes: ArchiveBox[], isCloudSynced: boolean) => void,
@@ -63,7 +108,7 @@ export function subscribeToFirestoreBoxes(
   const unsubscribe = onSnapshot(
     colRef,
     async (snapshot) => {
-      // If collection is completely empty, seed it with the default 13 archive boxes
+      // If collection is completely empty, seed it with default master boxes
       if (snapshot.empty) {
         console.info('Firestore boxes collection is empty. Seeding with default master boxes...');
         try {
@@ -76,11 +121,26 @@ export function subscribeToFirestoreBoxes(
 
       const loadedBoxes: ArchiveBox[] = [];
       snapshot.forEach((docSnap) => {
-        const data = docSnap.data() as ArchiveBox;
+        const data = docSnap.data();
         if (data && typeof data.id === 'number') {
-          loadedBoxes.push(data);
+          loadedBoxes.push(sanitizeArchiveBox(data, data.id));
         }
       });
+
+      // Auto-reconcile once: If master ARCHIVE_BOXES contains boxes not yet stored in Firestore (e.g. 2016 boxes),
+      // merge them and sync to Firestore in background
+      if (!hasAutoReconciledOnce) {
+        hasAutoReconciledOnce = true;
+        const existingIds = new Set(loadedBoxes.map((b) => b.id));
+        const missingMasterBoxes = ARCHIVE_BOXES.filter((b) => !existingIds.has(b.id));
+        if (missingMasterBoxes.length > 0) {
+          console.info(`Auto-syncing ${missingMasterBoxes.length} missing master archive boxes to Firestore...`);
+          loadedBoxes.push(...missingMasterBoxes);
+          seedFirestoreBoxes(missingMasterBoxes).catch((seedErr) => {
+            console.warn('Background master box sync notice:', seedErr);
+          });
+        }
+      }
 
       // Sort by box ID ascending
       loadedBoxes.sort((a, b) => a.id - b.id);

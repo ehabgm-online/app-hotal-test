@@ -19,12 +19,17 @@ const CODE128_PATTERNS: string[] = [
   '211214', '211232', '2331112',
 ];
 
-export function encodeCode128B(text: string): { bars: Array<{ x: number; w: number }>; totalModules: number } {
+export function encodeCode128B(text?: string | null): { bars: Array<{ x: number; w: number }>; totalModules: number } {
+  const safeText = String(text || '').trim();
+  if (!safeText) {
+    return { bars: [], totalModules: 20 };
+  }
+
   const codes: number[] = [104]; // Start Code B
   let checksum = 104;
 
-  for (let i = 0; i < text.length; i++) {
-    const charCode = text.charCodeAt(i);
+  for (let i = 0; i < safeText.length; i++) {
+    const charCode = safeText.charCodeAt(i);
     const val = charCode >= 32 && charCode <= 126 ? charCode - 32 : 0;
     codes.push(val);
     checksum += val * (i + 1);
@@ -52,7 +57,7 @@ export function encodeCode128B(text: string): { bars: Array<{ x: number; w: numb
 }
 
 interface Code128BarcodeProps {
-  value: string;
+  value?: string | null;
   height?: number;
   className?: string;
   showLabel?: boolean;
@@ -64,23 +69,24 @@ export const Code128Barcode: React.FC<Code128BarcodeProps> = ({
   className = '',
   showLabel = true,
 }) => {
-  const { bars, totalModules } = encodeCode128B(value);
+  const safeValue = String(value || '');
+  const { bars, totalModules } = encodeCode128B(safeValue);
   const svgHeight = showLabel ? height + 18 : height;
 
   return (
     <svg
-      viewBox={`0 0 ${totalModules} ${svgHeight}`}
+      viewBox={`0 0 ${totalModules || 40} ${svgHeight}`}
       className={`w-full max-w-full select-none ${className}`}
       role="img"
-      aria-label={`Barcode ${value}`}
+      aria-label={`Barcode ${safeValue}`}
     >
-      <rect x="0" y="0" width={totalModules} height={svgHeight} fill="#FFFFFF" />
+      <rect x="0" y="0" width={totalModules || 40} height={svgHeight} fill="#FFFFFF" />
       {bars.map((bar, idx) => (
         <rect key={idx} x={bar.x} y={2} width={bar.w} height={height - 4} fill="#0F172A" />
       ))}
-      {showLabel && (
+      {showLabel && safeValue && (
         <text
-          x={totalModules / 2}
+          x={(totalModules || 40) / 2}
           y={height + 13}
           textAnchor="middle"
           fill="#0F172A"
@@ -89,15 +95,18 @@ export const Code128Barcode: React.FC<Code128BarcodeProps> = ({
           fontWeight="600"
           letterSpacing="1.4"
         >
-          {value}
+          {safeValue}
         </text>
       )}
     </svg>
   );
 };
 
+// Global in-memory cache for generated QR codes to make rendering instant and prevent CPU lag
+const qrMemoryCache = new Map<string, string>();
+
 interface BoxQrCodeProps {
-  value: string;
+  value?: string | null;
   size?: number;
   className?: string;
   onDataUrlReady?: (dataUrl: string) => void;
@@ -109,11 +118,28 @@ export const BoxQrCode: React.FC<BoxQrCodeProps> = ({
   className = '',
   onDataUrlReady,
 }) => {
-  const [dataUrl, setDataUrl] = useState<string>('');
+  const safeValue = String(value || '');
+  const cacheKey = `${safeValue}_${size}`;
+  const [dataUrl, setDataUrl] = useState<string>(() => qrMemoryCache.get(cacheKey) || '');
+
+  const callbackRef = React.useRef(onDataUrlReady);
+  callbackRef.current = onDataUrlReady;
 
   useEffect(() => {
+    if (!safeValue) {
+      setDataUrl('');
+      return;
+    }
+
+    const cached = qrMemoryCache.get(cacheKey);
+    if (cached) {
+      setDataUrl(cached);
+      callbackRef.current?.(cached);
+      return;
+    }
+
     let active = true;
-    QRCode.toDataURL(value, {
+    QRCode.toDataURL(safeValue, {
       width: size * 2,
       margin: 1,
       errorCorrectionLevel: 'M',
@@ -124,8 +150,9 @@ export const BoxQrCode: React.FC<BoxQrCodeProps> = ({
     })
       .then((url) => {
         if (active) {
+          qrMemoryCache.set(cacheKey, url);
           setDataUrl(url);
-          onDataUrlReady?.(url);
+          callbackRef.current?.(url);
         }
       })
       .catch(() => {
@@ -135,7 +162,7 @@ export const BoxQrCode: React.FC<BoxQrCodeProps> = ({
     return () => {
       active = false;
     };
-  }, [value, size, onDataUrlReady]);
+  }, [safeValue, size, cacheKey]);
 
   if (!dataUrl) {
     return (

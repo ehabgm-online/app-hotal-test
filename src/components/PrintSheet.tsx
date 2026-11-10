@@ -39,18 +39,22 @@ interface PrintSheetProps {
   suppliersList?: SupplierAuditItem[];
 }
 
-export const PrintSheet: React.FC<PrintSheetProps> = ({
+export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
   mode,
   boxes,
   activeBox,
   getBoxUrl,
   suppliersList,
 }) => {
+  const safeBoxes = Array.isArray(boxes) ? boxes : [];
+  const safeActiveBox = activeBox || safeBoxes[0];
+  if (!safeActiveBox) return null;
+
   // 1. Box Official Manifest Table
   if (mode === 'box-manifest') {
-    const url = getBoxUrl(activeBox.id);
+    const url = getBoxUrl(safeActiveBox.id);
     return (
-      <div className="hidden print:block bg-white text-slate-900 p-6 space-y-5" dir="rtl">
+      <div className="hidden print:block [content-visibility:auto] bg-white text-slate-900 p-6 space-y-5" dir="rtl">
         <div className="border-2 border-slate-900 rounded-2xl p-5 flex items-center justify-between gap-6">
           <div className="space-y-1.5 flex-1">
             <div className="text-xs font-bold text-slate-600 tracking-wider">
@@ -514,4 +518,4 @@ export const PrintSheet: React.FC<PrintSheetProps> = ({
       </div>
     </div>
   );
-};
+});

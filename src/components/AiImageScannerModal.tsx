@@ -26,13 +26,11 @@ export function AiImageScannerModal({
   const [matchedBox, setMatchedBox] = useState<{ box: ArchiveBox; matchScore: number } | null>(null);
   const [selectedTargetBoxId, setSelectedTargetBoxId] = useState<number>(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
-  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processFile = async (file: File) => {
     setPreviewUrl(URL.createObjectURL(file));
     setLoading(true);
     setExtracted(null);
@@ -61,15 +59,34 @@ export function AiImageScannerModal({
           }
           setMatchedBox(found);
         }
-        showToast('تم استخراج البيانات وفحص المستند بالذكاء الاصطناعي بنجاح!');
+        showToast('تم فحص المستند واستخراج البيانات بدقة بالذكاء الاصطناعي!');
       } else {
-        showToast('تعذر استخراج البيانات من الصورة، يرجى محاولة رفع صورة أوضح.');
+        showToast('تعذر استخراج البيانات من الصورة، يرجى المحاولة بصورة أوضح.');
       }
     } catch (err) {
       console.error(err);
       showToast('حدث خطأ أثناء معالجة الصورة.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) {
+          processFile(file);
+          break;
+        }
+      }
     }
   };
 
@@ -83,22 +100,25 @@ export function AiImageScannerModal({
       notes: extracted.notes || 'تمت الإضافة عبر فحص الصورة بالذكاء الاصطناعي',
       amountEgp: extracted.amount || undefined,
     });
-    showToast(`تمت إضافة الفاتورة والمورد بنجاح إلى الصندوق رقم ${selectedTargetBoxId}!`);
+    showToast(`تم حفظ ومزامنة الفاتورة والمورد سحابياً في الصندوق رقم ${selectedTargetBoxId}!`);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+    <div
+      onPaste={handlePaste}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto"
+    >
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
         {/* Header */}
-        <div className="bg-gradient-to-r from-indigo-600 to-blue-700 text-white p-5 flex items-center justify-between">
+        <div className="bg-gradient-to-r from-indigo-600 via-blue-600 to-teal-700 text-white p-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md">
-              <Camera className="w-5 h-5 text-amber-300" />
+              <Camera className="w-5 h-5 text-amber-300 animate-pulse" />
             </div>
             <div>
               <h3 className="text-lg font-bold">فحص المستندات والفواتير بالذكاء الاصطناعي (AI OCR Scanner)</h3>
-              <p className="text-xs text-indigo-100">ارفع صورة الفاتورة أو الشيك للتعرف التلقائي ومعرفة مكان الحفظ</p>
+              <p className="text-xs text-indigo-100">ارفع صورة الفاتورة أو الشيك أو التقطها بالكاميرا للتعرف الفوري والمزامنة</p>
             </div>
           </div>
           <button
@@ -111,27 +131,58 @@ export function AiImageScannerModal({
 
         {/* Body */}
         <div className="p-6 space-y-6">
-          {/* Upload Box */}
+          {/* Upload / Camera Action Buttons */}
           {!previewUrl && (
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-500 rounded-2xl p-8 text-center bg-indigo-50/50 dark:bg-indigo-950/20 cursor-pointer transition-all flex flex-col items-center justify-center gap-3"
-            >
-              <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-                <Upload className="w-8 h-8" />
+            <div className="space-y-4">
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-500 rounded-2xl p-8 text-center bg-indigo-50/50 dark:bg-indigo-950/20 cursor-pointer transition-all flex flex-col items-center justify-center gap-3"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Upload className="w-8 h-8" />
+                </div>
+                <div>
+                  <span className="font-bold text-sm text-slate-800 dark:text-white block mb-1">
+                    انقر لرفع صورة الفاتورة أو الشيك (أو الصق صورة من الحافظة Ctrl+V)
+                  </span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    يدعم صور JPG, PNG, WEBP ومستندات الفنادق والشركات
+                  </span>
+                </div>
               </div>
-              <div>
-                <span className="font-bold text-sm text-slate-800 dark:text-white block mb-1">
-                  انقر هنا لرفع صورة الفاتورة أو الشيك أو سحبها وإفلاتها
-                </span>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  يدعم صور JPG, PNG, WEBP (يتم فحصها بدقة بالذكاء الاصطناعي)
-                </span>
+
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center gap-2 shadow-md cursor-pointer transition-all"
+                >
+                  <Camera className="w-4 h-4 text-white" />
+                  <span>التقاط بالكاميرا مباشرة 📸</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs flex items-center gap-2 cursor-pointer transition-all"
+                >
+                  <Upload className="w-4 h-4 text-slate-500" />
+                  <span>اختيار من المعرض 📁</span>
+                </button>
               </div>
+
+              {/* Hidden Inputs */}
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
+                onChange={handleFileSelected}
+                className="hidden"
+              />
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
                 onChange={handleFileSelected}
                 className="hidden"
               />
@@ -141,8 +192,8 @@ export function AiImageScannerModal({
           {/* Preview & Analysis */}
           {previewUrl && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div className="relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 flex items-center justify-center max-h-60">
-                <img src={previewUrl} alt="Document Preview" className="max-h-60 object-contain" />
+              <div className="relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-900 flex items-center justify-center max-h-72">
+                <img src={previewUrl} alt="Document Preview" className="max-h-72 object-contain" />
                 <button
                   type="button"
                   onClick={() => {
@@ -150,9 +201,9 @@ export function AiImageScannerModal({
                     setExtracted(null);
                     setMatchedBox(null);
                   }}
-                  className="absolute top-2 right-2 px-2 py-1 bg-black/60 hover:bg-black text-white text-xs rounded-lg"
+                  className="absolute top-2 right-2 px-2.5 py-1 bg-black/70 hover:bg-black text-white text-xs font-semibold rounded-lg backdrop-blur-xs"
                 >
-                  صورة أخرى
+                  فحص صورة أخرى
                 </button>
               </div>
 
@@ -166,29 +217,70 @@ export function AiImageScannerModal({
                   </div>
                 ) : extracted ? (
                   <div className="space-y-3">
-                    <div className="p-3.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-2">
-                      <div className="font-bold text-slate-900 dark:text-white flex items-center justify-between">
-                        <span>المورد المستخرج:</span>
-                        <span className="text-indigo-600 dark:text-indigo-400">{extracted.supplierName || 'غير محدد'}</span>
+                    {/* Editable Extracted Form */}
+                    <div className="p-3.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-2.5">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-0.5">
+                          اسم المورد:
+                        </label>
+                        <input
+                          type="text"
+                          value={extracted.supplierName || ''}
+                          onChange={(e) => setExtracted({ ...extracted, supplierName: e.target.value })}
+                          className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-400"
+                        />
                       </div>
-                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                        <span>رقم المستند / الفاتورة:</span>
-                        <span className="font-mono">{extracted.docNo || '—'}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                        <span>رقم الشيك:</span>
-                        <span className="font-mono">{extracted.checkNo || '—'}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                        <span>السنة المالية:</span>
-                        <span className="font-mono">{extracted.year || 2017}</span>
-                      </div>
-                      {extracted.amount && (
-                        <div className="flex items-center justify-between text-emerald-600 font-bold">
-                          <span>المبلغ:</span>
-                          <span>{extracted.amount.toLocaleString()} ج.م</span>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-0.5">
+                            رقم المستند / الفاتورة:
+                          </label>
+                          <input
+                            type="text"
+                            value={extracted.docNo || ''}
+                            onChange={(e) => setExtracted({ ...extracted, docNo: e.target.value })}
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono"
+                          />
                         </div>
-                      )}
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-0.5">
+                            رقم الشيك:
+                          </label>
+                          <input
+                            type="text"
+                            value={extracted.checkNo || ''}
+                            onChange={(e) => setExtracted({ ...extracted, checkNo: e.target.value })}
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-0.5">
+                            السنة المالية:
+                          </label>
+                          <input
+                            type="number"
+                            value={extracted.year || 2017}
+                            onChange={(e) => setExtracted({ ...extracted, year: Number(e.target.value) })}
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-0.5">
+                            المبلغ (ج.م):
+                          </label>
+                          <input
+                            type="number"
+                            value={extracted.amount || ''}
+                            placeholder="0"
+                            onChange={(e) => setExtracted({ ...extracted, amount: Number(e.target.value) })}
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-mono text-emerald-600 font-bold"
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     {/* Match Result Banner */}
@@ -196,7 +288,7 @@ export function AiImageScannerModal({
                       <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
                         <div className="flex items-center gap-1.5 font-bold">
                           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                          <span>المورد موجود مسبقاً في الأرشيف!</span>
+                          <span>المورد مسجل مسبقاً في الأرشيف!</span>
                         </div>
                         <div>
                           متواجد في: <strong>{matchedBox.box.titleAr}</strong> ({matchedBox.box.subtitleAr})
@@ -207,7 +299,7 @@ export function AiImageScannerModal({
                             onNavigateToBox(matchedBox.box.id);
                             onClose();
                           }}
-                          className="mt-1 text-emerald-700 dark:text-emerald-400 hover:underline font-bold flex items-center gap-1"
+                          className="mt-1 text-emerald-700 dark:text-emerald-400 hover:underline font-bold flex items-center gap-1 cursor-pointer"
                         >
                           <span>عرض مكان المورد في الصندوق</span>
                           <ArrowRight className="w-3 h-3" />
@@ -217,9 +309,8 @@ export function AiImageScannerModal({
                       <div className="p-3 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-800 dark:text-amber-300 space-y-2">
                         <div className="flex items-center gap-1.5 font-bold">
                           <XCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                          <span>المورد غير مسجل في الأرشيف!</span>
+                          <span>المورد غير مسجل مسبقاً، يمكنك حفظه الآن:</span>
                         </div>
-                        <div>يمكنك إضافته وتسيجله فوراً في الصندوق المحدد أدناه:</div>
                         <div className="flex items-center gap-2 pt-1">
                           <select
                             value={selectedTargetBoxId}
@@ -236,10 +327,10 @@ export function AiImageScannerModal({
                           <button
                             type="button"
                             onClick={handleConfirmAdd}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shrink-0 flex items-center gap-1 cursor-pointer"
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shrink-0 flex items-center gap-1 cursor-pointer shadow-xs"
                           >
                             <Plus className="w-3.5 h-3.5" />
-                            <span>إضافة</span>
+                            <span>حفظ سحابياً</span>
                           </button>
                         </div>
                       </div>
@@ -255,7 +346,7 @@ export function AiImageScannerModal({
         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
             <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-            مدعوم بنموذج Google Gemini Vision الذكي
+            فحص ذكي متعدد الوسائط بدقة فائقة
           </span>
           <button
             type="button"

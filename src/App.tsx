@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Archive,
   ArrowRight,
@@ -80,6 +80,13 @@ import {
   cacheBoxesLocally,
   getLocalCachedBoxes,
 } from './services/firestoreArchive';
+import {
+  FullPageSkeleton,
+  TopSyncBar,
+  FloatingSyncBadge,
+  BoxCardSkeleton,
+  FileRowSkeleton,
+} from './components/ArchiveLoadingSkeleton';
 
 type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'qrcodes' | 'suppliers' | 'extraction-plan';
 type YearFilter = 'all' | number;
@@ -102,6 +109,7 @@ export function App() {
   const [boxes, setBoxes] = useState<ArchiveBox[]>(loadStoredBoxes);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(true);
+  const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
   const [lastSyncTime, setLastSyncTime] = useState<string>('');
   const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
   const [yearFilter, setYearFilter] = useState<YearFilter>('all');
@@ -211,6 +219,14 @@ export function App() {
     }, 2800);
   };
 
+  // Smooth initial loading skeleton transition
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitialLoading(false);
+    }, 650);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Real-time Firestore Cloud Database Synchronization
   useEffect(() => {
     testFirestoreConnection();
@@ -220,12 +236,14 @@ export function App() {
         setBoxes(cloudBoxes);
         setIsCloudSynced(synced);
         setIsSyncing(false);
+        setIsInitialLoading(false);
         setLastSyncTime(new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }));
       },
       (err) => {
         console.warn('Real-time sync notice:', err);
         setIsCloudSynced(false);
         setIsSyncing(false);
+        setIsInitialLoading(false);
       }
     );
 
@@ -253,7 +271,7 @@ export function App() {
   // Dynamic available years list including any years from new boxes
   const dynamicYears = useMemo(() => {
     const yrSet = new Set<number>();
-    boxes.forEach((b) => b.years.forEach((y) => yrSet.add(y)));
+    boxes.forEach((b) => (b.years || []).forEach((y) => yrSet.add(y)));
     return Array.from(yrSet).sort((a, b) => b - a);
   }, [boxes]);
 
@@ -457,6 +475,33 @@ export function App() {
     }
   };
 
+  // Add Record from AI Image Scanner
+  const handleAiAddRecord = async (
+    boxId: number,
+    record: {
+      supplierName: string;
+      docNo: string;
+      checkNo: string;
+      year: number;
+      notes: string;
+      amountEgp?: number;
+    }
+  ) => {
+    const targetBox = boxes.find((b) => b.id === boxId);
+    const nextFileNo = targetBox ? targetBox.files.length + 1 : 1;
+    const fullRecord: ArchiveFileRecord = {
+      fileNo: nextFileNo,
+      envelopeLabel: `الظرف ${nextFileNo}`,
+      supplierName: record.supplierName,
+      docNo: record.docNo,
+      checkNo: record.checkNo,
+      year: record.year,
+      notes: record.notes,
+      amountEgp: record.amountEgp,
+    };
+    await handleAddSingleRecord(boxId, fullRecord);
+  };
+
   // Re-number file records in a box sequentially from 1 to N
   const handleRenumberFiles = async (boxId: number) => {
     let boxToSave: ArchiveBox | null = null;
@@ -523,17 +568,17 @@ export function App() {
     }
   }, [boxes]);
 
-  const getBoxDirectUrl = (boxId: number): string => {
+  const getBoxDirectUrl = useCallback((boxId: number): string => {
     if (typeof window === 'undefined') return `?box=${boxId}`;
     const cleanBase = `${window.location.origin}${window.location.pathname}`;
     return `${cleanBase}?box=${boxId}`;
-  };
+  }, []);
 
   // Flatten all records for global analytics & instant search
   const allFlattenedRecords = useMemo<FlattenedRecord[]>(() => {
     const list: FlattenedRecord[] = [];
     for (const box of boxes) {
-      for (const file of box.files) {
+      for (const file of box.files || []) {
         list.push({
           ...file,
           boxId: box.id,
@@ -549,7 +594,7 @@ export function App() {
   // Filtered boxes according to selected YearFilter
   const yearFilteredBoxes = useMemo<ArchiveBox[]>(() => {
     if (yearFilter === 'all') return boxes;
-    return boxes.filter((b) => b.years.includes(yearFilter));
+    return boxes.filter((b) => (b.years || []).includes(yearFilter));
   }, [boxes, yearFilter]);
 
   // Filtered flattened records according to selected YearFilter
@@ -1029,13 +1074,26 @@ export function App() {
   };
 
   const maxFilesInAnyBox = useMemo(
-    () => Math.max(...boxes.map((b) => b.files.length), 1),
+    () => Math.max(...boxes.map((b) => (b.files || []).length), 1),
     [boxes]
   );
+
+  // Show attractive loading skeleton on initial application boot
+  if (isInitialLoading) {
+    return (
+      <FullPageSkeleton
+        message="جاري تحميل وفهرسة الأرشيف السحابي..."
+        subMessage="الاتصال بقاعدة بيانات Firestore ومزامنة الصناديق والموردين والباركودات"
+      />
+    );
+  }
 
   if (isFocusedScanMode) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col" dir="rtl">
+        {/* Top Sync Indicator */}
+        {isSyncing && <TopSyncBar />}
+
         {/* Top Header for Mobile Scan Inspection */}
         <header className="no-print sticky top-0 z-30 bg-[#0B1426]/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between gap-3 shadow-md">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -1335,6 +1393,12 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row overflow-x-hidden" dir="rtl">
+      {/* Top Background Sync Shimmer Bar */}
+      {isSyncing && <TopSyncBar />}
+
+      {/* Floating Cloud Sync Badge */}
+      {isSyncing && <FloatingSyncBadge lastSyncTime={lastSyncTime} />}
+
       {/* Mobile Sidebar Backdrop */}
       {mobileSidebarOpen && (
         <div
@@ -1488,7 +1552,7 @@ export function App() {
                 <FileText className="w-4 h-4 shrink-0 text-emerald-400" />
                 <span>خطة استخراج الصناديق</span>
               </span>
-              <span className="text-xs font-mono-num opacity-80">1–13</span>
+              <span className="text-xs font-mono-num opacity-80">{boxes.length} صندوق</span>
             </button>
           </div>
 
@@ -1544,7 +1608,7 @@ export function App() {
                 className="w-full mt-1.5 py-1 px-2 text-[11px] text-slate-400 hover:text-rose-400 flex items-center justify-center gap-1 cursor-pointer transition-colors"
               >
                 <RotateCcw className="w-3 h-3" />
-                <span>استعادة الافتراضي (1-13)</span>
+                <span>استعادة الافتراضي ({ARCHIVE_BOXES.length})</span>
               </button>
             )}
           </div>
@@ -3874,7 +3938,7 @@ export function App() {
                     <span className="text-2xl sm:text-3xl font-black font-mono-num text-slate-900">
                       {extractionSummaryStats.totalBoxes}
                     </span>
-                    <span className="text-xs text-slate-500">صندوق (1–13)</span>
+                    <span className="text-xs text-slate-500">صندوق ({boxes.length} إجمالي)</span>
                   </div>
                 </div>
 
@@ -3943,7 +4007,7 @@ export function App() {
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                     }`}
                   >
-                    جميع الصناديق (1–13)
+                    جميع الصناديق ({boxes.length})
                   </button>
                 </div>
               </div>
@@ -4066,7 +4130,7 @@ export function App() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[11px] font-bold">
-                        غير متواجدين في الصناديق (1–13)
+                        غير متواجدين في جميع الصناديق ({boxes.length} صندوق)
                       </span>
                       <span className="text-xs font-mono-num font-bold text-rose-700">
                         {extractionSummaryStats.missingSuppliersCount} مورد
@@ -4076,7 +4140,7 @@ export function App() {
                       قائمة الموردين المتبقين المطلوب البحث عنهم واستكمالهم
                     </h3>
                     <p className="text-xs text-slate-600">
-                      هؤلاء الموردون واردون في الكشف المرسل لكن لم يتم العثور على أي ملف لهم داخل الصناديق من 1 إلى 13.
+                      هؤلاء الموردون واردون في الكشف المرجعي العام لكن لم يتم العثور على أي ملف لهم داخل صناديق الأرشيف الحالية ({boxes.length} صندوق لسنوات 2016، 2017، 2019، 2021).
                     </p>
                   </div>
 
@@ -4301,7 +4365,7 @@ export function App() {
         isOpen={isAiImageScannerOpen}
         onClose={() => setIsAiImageScannerOpen(false)}
         boxes={boxes}
-        onAddRecordToBox={handleAddSingleRecord}
+        onAddRecordToBox={handleAiAddRecord}
         onNavigateToBox={navigateToBox}
         showToast={showToast}
       />

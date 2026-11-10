@@ -768,7 +768,8 @@ export const MASTER_USER_SUPPLIERS = [
   "منجر للأسواق الحرة", "مامبيا مصر", "شركة شيلار / Ritz Carlton Pen"
 ];
 
-export function normalizeArabicSearch(input: string): string {
+export function normalizeArabicSearch(input?: string | null): string {
+  if (!input || typeof input !== 'string') return '';
   return input
     .toLowerCase()
     .replace(/[أإآ]/g, 'ا')
