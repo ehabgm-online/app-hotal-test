@@ -275,6 +275,21 @@ export function App() {
     return Array.from(yrSet).sort((a, b) => b - a);
   }, [boxes]);
 
+  // Auto-switch selected box to match the isolated financial year
+  useEffect(() => {
+    if (yearFilter !== 'all') {
+      const isCurrentBoxInYear = boxes.some(
+        (b) => b.id === selectedBoxId && (b.years || []).includes(yearFilter)
+      );
+      if (!isCurrentBoxInYear) {
+        const firstMatchingBox = boxes.find((b) => (b.years || []).includes(yearFilter));
+        if (firstMatchingBox) {
+          setSelectedBoxId(firstMatchingBox.id);
+        }
+      }
+    }
+  }, [yearFilter, boxes, selectedBoxId]);
+
   // Handle box creation with pasted suppliers (persisted directly to Cloud Firestore)
   const handleCreateBox = async (newBox: ArchiveBox) => {
     setBoxes((prev) => {
@@ -614,9 +629,11 @@ export function App() {
 
   // Comprehensive Suppliers Directory Index & Audit
   const suppliersDirectoryList = useMemo<SupplierAuditItem[]>(() => {
+    const activeRecords = yearFilter === 'all' ? allFlattenedRecords : yearFilteredRecords;
+
     if (supplierScopeFilter === 'requested') {
       const items: SupplierAuditItem[] = MASTER_USER_SUPPLIERS.map((uSup) => {
-        const matchingRecs = allFlattenedRecords.filter((rec) =>
+        const matchingRecs = activeRecords.filter((rec) =>
           matchesBilingual(rec.supplierName, uSup)
         );
         const locations: SupplierAuditLocation[] = matchingRecs.map((rec) => ({
@@ -653,7 +670,7 @@ export function App() {
 
     // Otherwise 'allArchive': group all raw records in archive
     const map = new Map<string, SupplierAuditLocation[]>();
-    for (const rec of allFlattenedRecords) {
+    for (const rec of activeRecords) {
       const name = (rec.supplierName || 'غير محدد').trim();
       if (!map.has(name)) {
         map.set(name, []);
@@ -690,7 +707,7 @@ export function App() {
     });
 
     return items;
-  }, [allFlattenedRecords, supplierScopeFilter]);
+  }, [allFlattenedRecords, yearFilteredRecords, yearFilter, supplierScopeFilter]);
 
   const filteredSuppliersDirectory = useMemo(() => {
     let list = suppliersDirectoryList;
@@ -770,7 +787,8 @@ export function App() {
 
   // Per-Box Supplier Extraction Plans (خطة استخراج الموردين لكل صندوق)
   const boxExtractionPlans = useMemo(() => {
-    return boxes.map((box) => {
+    const targetBoxes = yearFilter === 'all' ? boxes : yearFilteredBoxes;
+    return targetBoxes.map((box) => {
       const requiredFiles = box.files.filter((f) =>
         MASTER_USER_SUPPLIERS.some((uSup) => matchesBilingual(f.supplierName, uSup))
       );
@@ -784,28 +802,30 @@ export function App() {
         totalRequired: requiredFiles.length,
       };
     });
-  }, [boxes]);
+  }, [boxes, yearFilteredBoxes, yearFilter]);
 
   const missingMasterSuppliers = useMemo(() => {
-    const allArchived = boxes.flatMap((b) => b.files);
+    const targetBoxes = yearFilter === 'all' ? boxes : yearFilteredBoxes;
+    const allArchived = targetBoxes.flatMap((b) => b.files);
     return MASTER_USER_SUPPLIERS.filter(
       (uSup) => !allArchived.some((f) => matchesBilingual(f.supplierName, uSup))
     ).map((s) => {
       const bi = getSupplierBilingualInfo(s);
       return { name: s, secondary: bi.secondary };
     });
-  }, [boxes]);
+  }, [boxes, yearFilteredBoxes, yearFilter]);
 
   const extractionSummaryStats = useMemo(() => {
+    const targetBoxes = yearFilter === 'all' ? boxes : yearFilteredBoxes;
     const boxesWithRequired = boxExtractionPlans.filter((p) => p.totalRequired > 0).length;
     const totalRequiredFiles = boxExtractionPlans.reduce((sum, p) => sum + p.totalRequired, 0);
     return {
-      totalBoxes: boxes.length,
+      totalBoxes: targetBoxes.length,
       boxesWithRequired,
       totalRequiredFiles,
       missingSuppliersCount: missingMasterSuppliers.length,
     };
-  }, [boxes, boxExtractionPlans, missingMasterSuppliers]);
+  }, [boxes, yearFilteredBoxes, yearFilter, boxExtractionPlans, missingMasterSuppliers]);
 
   const handleExportExtractionPlanCsv = () => {
     const headers = [

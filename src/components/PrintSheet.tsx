@@ -58,7 +58,7 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
         <div className="border-2 border-slate-900 rounded-2xl p-5 flex items-center justify-between gap-6">
           <div className="space-y-1.5 flex-1">
             <div className="text-xs font-bold text-slate-600 tracking-wider">
-              SMART DOCS E-ARCHIVE · كشف محتويات صندوق أرشيف رسمي
+              أرشيف فندق النيل ريتز كارلتون (The Nile Ritz-Carlton) · كشف محتويات صندوق أرشيف رسمي
             </div>
             <div className="flex items-center gap-4">
               <span className="text-5xl font-black font-mono-num text-slate-900 bg-slate-100 border border-slate-400 px-4 py-1.5 rounded-xl">
@@ -144,10 +144,10 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
         <div className="border-2 border-slate-900 rounded-xl p-4 flex items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              SMART DOCS E-ARCHIVE · تقرير التدقيق والمطابقة الأرشيفية
+              أرشيف فندق النيل ريتز كارلتون · تقرير التدقيق والمطابقة الأرشيفية
             </div>
             <h1 className="text-xl font-black text-slate-950 font-display">
-              كشف حصر وتدقيق قائمة الموردين والشركات بالأرشيف الإلكتروني
+              كشف حصر وتدقيق قائمة الموردين والشركات بالأرشيف الإلكتروني — فندق النيل ريتز كارلتون
             </h1>
             <p className="text-xs text-slate-600">
               بيان بالموردين المستخرجين من المستندات ومطابقة أماكن تواجدهم الفعلية بالصناديق (1 إلى 13).
@@ -245,7 +245,7 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
 
         {/* Footer with sign-off */}
         <div className="pt-4 border-t border-slate-300 flex items-center justify-between text-xs text-slate-600">
-          <div>تم إعداد الكشف والتدقيق إلكترونياً عبر منصة الأرشيف الذكي Smart Docs E-Archive</div>
+          <div>تم إعداد الكشف والتدقيق إلكترونياً عبر أرشيف فندق النيل ريتز كارلتون (The Nile Ritz-Carlton)</div>
           <div className="flex items-center gap-8">
             <div>توقيع مسؤول الأرشيف: .........................</div>
             <div>اعتماد الإدارة: .........................</div>
@@ -263,7 +263,7 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
         <div className="border-b-2 border-slate-900 pb-4 flex items-center justify-between">
           <div className="space-y-1">
             <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              SMART DOCS E-ARCHIVE · خطة استخراج وتدقيق الموردين لكل صندوق
+              أرشيف فندق النيل ريتز كارلتون · خطة استخراج وتدقيق الموردين لكل صندوق
             </div>
             <h1 className="text-xl font-black text-slate-950 font-display">
               بيان تفصيلي بمتطلبات واستخراج الموردين المطلوبين من كل صندوق (1 إلى 13)
@@ -412,8 +412,8 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
                 {/* Box Meta & Details */}
                 <div className="flex-1 flex flex-col justify-center space-y-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold bg-slate-100 text-slate-900 px-2 py-0.5 rounded border border-slate-300">
-                      SMART DOCS E-ARCHIVE
+                    <span className="text-[11px] font-bold bg-slate-900 text-amber-300 px-2.5 py-0.5 rounded border border-slate-700">
+                      فندق النيل ريتز كارلتون · THE NILE RITZ-CARLTON
                     </span>
                     <span className="text-xs font-mono-num font-bold text-slate-700">
                       السنة المالية: {box.years.join(' / ')}

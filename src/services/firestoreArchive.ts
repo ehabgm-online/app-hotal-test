@@ -7,8 +7,55 @@ import {
   getDocs,
   writeBatch,
 } from 'firebase/firestore';
-import { db, testFirestoreConnection } from '../lib/firebase';
+import { db, auth, testFirestoreConnection } from '../lib/firebase';
 import { ArchiveBox, ARCHIVE_BOXES } from '../data/archiveData';
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid || null,
+      email: auth?.currentUser?.email || null,
+      emailVerified: auth?.currentUser?.emailVerified || null,
+      isAnonymous: auth?.currentUser?.isAnonymous || null,
+      tenantId: auth?.currentUser?.tenantId || null,
+      providerInfo: auth?.currentUser?.providerData?.map((p) => ({
+        providerId: p.providerId,
+        email: p.email,
+      })) || [],
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 const BOXES_COLLECTION = 'boxes';
 const LOCAL_STORAGE_KEY = 'smart_docs_boxes_data_v1';
@@ -166,51 +213,69 @@ export function subscribeToFirestoreBoxes(
  * Save or update a single box in Firestore and local cache
  */
 export async function saveBoxToCloud(box: ArchiveBox): Promise<void> {
-  const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(box.id));
-  const payload = {
-    ...box,
-    updatedAt: new Date().toISOString(),
-  };
-  await setDoc(docRef, payload, { merge: true });
+  const path = `${BOXES_COLLECTION}/${getBoxDocId(box.id)}`;
+  try {
+    const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(box.id));
+    const payload = {
+      ...box,
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(docRef, payload, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
 }
 
 /**
  * Delete a box from Firestore
  */
 export async function deleteBoxFromCloud(boxId: number): Promise<void> {
-  const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(boxId));
-  await deleteDoc(docRef);
+  const path = `${BOXES_COLLECTION}/${getBoxDocId(boxId)}`;
+  try {
+    const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(boxId));
+    await deleteDoc(docRef);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
 }
 
 /**
  * Batch seed boxes into Firestore
  */
 export async function seedFirestoreBoxes(boxes: ArchiveBox[]): Promise<void> {
-  const batch = writeBatch(db);
-  for (const box of boxes) {
-    const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(box.id));
-    batch.set(docRef, {
-      ...box,
-      updatedAt: new Date().toISOString(),
-    });
+  try {
+    const batch = writeBatch(db);
+    for (const box of boxes) {
+      const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(box.id));
+      batch.set(docRef, {
+        ...box,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, BOXES_COLLECTION);
   }
-  await batch.commit();
 }
 
 /**
  * Reset Firestore collection back to original master 13 boxes
  */
 export async function resetCloudBoxesToDefault(): Promise<void> {
-  // First delete any boxes that are not in ARCHIVE_BOXES
-  const snapshot = await getDocs(collection(db, BOXES_COLLECTION));
-  const batch = writeBatch(db);
-  snapshot.forEach((d) => {
-    batch.delete(d.ref);
-  });
-  await batch.commit();
+  try {
+    // First delete any boxes that are not in ARCHIVE_BOXES
+    const snapshot = await getDocs(collection(db, BOXES_COLLECTION));
+    const batch = writeBatch(db);
+    snapshot.forEach((d) => {
+      batch.delete(d.ref);
+    });
+    await batch.commit();
 
-  // Then seed initial boxes
-  await seedFirestoreBoxes(ARCHIVE_BOXES);
+    // Then seed initial boxes
+    await seedFirestoreBoxes(ARCHIVE_BOXES);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, BOXES_COLLECTION);
+  }
 }
 
 export { testFirestoreConnection };
