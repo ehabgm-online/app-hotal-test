@@ -1414,19 +1414,18 @@ export function App() {
         }`}
       >
         <div className="flex flex-col h-full overflow-y-auto">
-          {/* Brand Header */}
+          {/* Brand Header: The Nile Ritz-Carlton Hotel Archive */}
           <div className="px-5 py-4 border-b border-slate-800/80 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
-                <Archive className="w-5 h-5" />
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 text-slate-950 flex items-center justify-center shadow-sm shrink-0 font-bold">
+                <Building2 className="w-5 h-5 text-slate-950" />
               </div>
-              <div>
-                <div className="font-display font-bold text-white text-base tracking-tight leading-snug">
-                  Smart Docs
+              <div className="min-w-0">
+                <div className="font-display font-bold text-white text-sm sm:text-base tracking-tight leading-snug truncate">
+                  أرشيف فندق النيل ريتز كارلتون
                 </div>
-                <div className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>سحابة نشطة ومزامنة</span>
+                <div className="text-[10.5px] text-amber-400/90 font-medium truncate">
+                  The Nile Ritz-Carlton · القاهرة
                 </div>
               </div>
             </div>
@@ -1556,16 +1555,56 @@ export function App() {
             </button>
           </div>
 
-          {/* Direct Box Index in Sidebar */}
-          <div className="px-3.5 pt-3 pb-4 border-t border-slate-800/80 flex-1 overflow-y-auto">
+          {/* Year Isolation Filter in Sidebar */}
+          <div className="px-3.5 pt-3 pb-2 border-t border-slate-800/80">
+            <div className="px-1 pb-1.5 text-[11px] font-semibold text-amber-400/90 flex items-center justify-between">
+              <span>عزل الأرشيف حسب السنة:</span>
+              <span className="text-[10px] text-slate-400 font-mono-num">
+                {yearFilter === 'all' ? `جميع السنوات (${boxes.length})` : `سنة ${yearFilter}`}
+              </span>
+            </div>
+            <div className="grid grid-cols-5 gap-1 p-1 bg-slate-900/90 rounded-xl border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setYearFilter('all')}
+                className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition-colors text-center ${
+                  yearFilter === 'all'
+                    ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                }`}
+                title="عرض أرشيف جميع السنوات مجمعة"
+              >
+                الكل
+              </button>
+              {dynamicYears.map((yr) => (
+                <button
+                  key={yr}
+                  type="button"
+                  onClick={() => setYearFilter(yr)}
+                  className={`py-1.5 px-1 rounded-lg text-[11px] font-mono-num font-medium transition-colors text-center ${
+                    yearFilter === yr
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                  title={`عزل أرشيف سنة ${yr} فقط`}
+                >
+                  {yr}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Direct Box Index in Sidebar - Grouped & Filtered by Isolated Year */}
+          <div className="px-3.5 pt-2 pb-4 flex-1 overflow-y-auto">
             <div className="px-2 pb-2 text-xs font-medium text-slate-400 flex items-center justify-between">
-              <span>فهرس الصناديق السريع</span>
-              <span className="font-mono-num">1–{boxes.length}</span>
+              <span>صناديق {yearFilter === 'all' ? 'الأرشيف العام' : `سنة ${yearFilter}`}</span>
+              <span className="font-mono-num text-[11px] text-amber-400/90">
+                {yearFilteredBoxes.length} صندوق
+              </span>
             </div>
             <div className="space-y-0.5">
-              {boxes.map((box) => {
+              {yearFilteredBoxes.map((box) => {
                 const isSelected = activeSection === 'boxes' && selectedBoxId === box.id;
-                const matchesYear = yearFilter === 'all' || box.years.includes(yearFilter);
                 return (
                   <button
                     key={box.id}
@@ -1573,10 +1612,8 @@ export function App() {
                     onClick={() => navigateToBox(box.id)}
                     className={`w-full px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition-colors cursor-pointer ${
                       isSelected
-                        ? 'bg-blue-500/20 text-blue-300 font-semibold'
-                        : matchesYear
-                        ? 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
-                        : 'text-slate-500 hover:bg-slate-800/40'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold'
+                        : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
                     }`}
                   >
                     <span className="truncate">{box.titleAr}</span>
@@ -1920,16 +1957,49 @@ export function App() {
              ========================================================= */}
           {activeSection === 'dashboard' && (
             <>
+              {/* Hotel Archive Official Header Banner */}
+              <div className="bg-gradient-to-l from-[#0B1426] via-slate-900 to-[#121E36] text-white rounded-2xl p-6 sm:p-7 border border-amber-500/30 shadow-md relative overflow-hidden">
+                <div className="absolute left-0 top-0 bottom-0 w-1/3 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-500/10 via-transparent to-transparent pointer-events-none" />
+                <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/40">
+                        الأرشيف الرقمي المعتمد
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        {yearFilter === 'all' ? 'كافة السنوات المالية (2016 · 2017 · 2019 · 2021)' : `أرشيف معزول لسنة ${yearFilter} فقط`}
+                      </span>
+                    </div>
+                    <h2 className="text-xl sm:text-2xl font-bold font-display text-white">
+                      أرشيف حسابات ومستندات فندق النيل ريتز كارلتون
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-300 max-w-2xl">
+                      منظومة رقمية شاملة لإدارة وتتبع صناديق الأرشيف والموردين، الشيكات البنكية، أرقام السندات، وطباعة ملصقات الباركود والـ QR بدقة فورية.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 bg-slate-950/60 border border-slate-800 p-3 rounded-xl">
+                    <div className="text-right">
+                      <div className="text-[11px] text-slate-400">نطاق العرض الحالي:</div>
+                      <div className="text-sm font-bold text-amber-400">
+                        {yearFilter === 'all' ? 'جميع الصناديق' : `صناديق سنة ${yearFilter}`}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Colored Architectural KPI Stat Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                 <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-xs font-medium text-slate-500">إجمالي الصناديق المؤرشفة</div>
+                    <div className="text-xs font-medium text-slate-500">
+                      {yearFilter === 'all' ? 'إجمالي الصناديق بالأرشيف' : `صناديق سنة ${yearFilter}`}
+                    </div>
                     <div className="text-3xl font-extrabold font-mono-num text-slate-900 mt-1.5">
                       {yearFilteredBoxes.length}
                     </div>
                     <div className="text-xs text-slate-500 mt-2">
-                      الصناديق 1 إلى 13 · مطابقة تامة للملف المرجعي
+                      {yearFilter === 'all' ? 'جميع الصناديق النشطة لفندق النيل ريتز كارلتون' : `تم عزل صناديق سنة ${yearFilter} بنجاح`}
                     </div>
                   </div>
                   <div className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
@@ -1939,7 +2009,7 @@ export function App() {
 
                 <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-xs font-medium text-slate-500">إجمالي الملفات والظروف</div>
+                    <div className="text-xs font-medium text-slate-500">الملفات والظروف المؤرشفة</div>
                     <div className="text-3xl font-extrabold font-mono-num text-slate-900 mt-1.5">
                       {yearFilteredRecords.length}
                     </div>
@@ -1954,12 +2024,12 @@ export function App() {
 
                 <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-xs font-medium text-slate-500">إجمالي الموردين والجهات</div>
+                    <div className="text-xs font-medium text-slate-500">الموردون والشركات المتعاملة</div>
                     <div className="text-3xl font-extrabold font-mono-num text-slate-900 mt-1.5">
                       {uniqueSuppliersCount}
                     </div>
                     <div className="text-xs text-slate-500 mt-2">
-                      شركة ومورد وجهة حكومية مسجلة بدون تكرار
+                      شركة ومورد مسجل في سجلات الفندق
                     </div>
                   </div>
                   <div className="w-11 h-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
@@ -1969,15 +2039,15 @@ export function App() {
 
                 <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-xs font-medium text-slate-500">السنوات المالية المشمولة</div>
-                    <div className="text-2xl font-extrabold font-mono-num text-slate-900 mt-2">
-                      {yearFilter === 'all' ? '2017 · 2019 · 2021' : yearFilter}
+                    <div className="text-xs font-medium text-slate-500">السنة المالية المحددة</div>
+                    <div className="text-2xl font-extrabold font-mono-num text-amber-600 mt-2">
+                      {yearFilter === 'all' ? '2016 · 2017 · 2019 · 2021' : `سنة ${yearFilter}`}
                     </div>
                     <div className="text-xs text-slate-500 mt-2">
-                      رموز QR وباركود جاهزة للطباعة واللصق
+                      باركود ورموز QR ومطابقة رقمية
                     </div>
                   </div>
-                  <div className="w-11 h-11 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
+                  <div className="w-11 h-11 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0">
                     <Calendar className="w-5 h-5" />
                   </div>
                 </div>
