@@ -21,16 +21,94 @@ export interface ParsedSupplierRow {
 }
 
 export function parsePastedSuppliers(text: string): ParsedSupplierRow[] {
-  const lines = text
+  const rawLines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
+  if (rawLines.length === 0) return [];
+
+  // 1. Try vertical multi-line columnar paste (e.g. copied from web tables, WhatsApp, Word)
+  const headerWords = new Set([
+    'م', 'رقم الصندوق', 'كود المورد', 'اسم المورد', 'السنة', 'ملاحظات',
+    'رقم', 'كود', 'اسم', 'ملاحظه', 'ملاحظة', 'السنه', 'الرقم', 'الكود', 'الاسم'
+  ]);
+  const cleanLines = rawLines.filter((l) => !headerWords.has(l));
+
+  const indexPositions: number[] = [];
+  for (let i = 0; i < cleanLines.length; i++) {
+    const l = cleanLines[i];
+    if (/^[0-9١-٩]+$/.test(l)) {
+      const num = parseInt(l.replace(/[١-٩]/g, (d) => String('١٢٣٤٥٦٧٨٩'.indexOf(d) + 1)), 10);
+      if (indexPositions.length === 0) {
+        if (num === 1 || num === 0) indexPositions.push(i);
+      } else {
+        const lastIdx = indexPositions[indexPositions.length - 1];
+        const lastNum = parseInt(cleanLines[lastIdx].replace(/[١-٩]/g, (d) => String('١٢٣٤٥٦٧٨٩'.indexOf(d) + 1)), 10);
+        if (num === lastNum + 1 || (i - lastIdx >= 2 && i - lastIdx <= 8)) {
+          indexPositions.push(i);
+        }
+      }
+    }
+  }
+
+  if (indexPositions.length >= 2) {
+    const verticalResults: ParsedSupplierRow[] = [];
+    for (let p = 0; p < indexPositions.length; p++) {
+      const start = indexPositions[p] + 1;
+      const end = p + 1 < indexPositions.length ? indexPositions[p + 1] : cleanLines.length;
+      const block = cleanLines.slice(start, end);
+
+      let supplierCode = '—';
+      let supplierName = '';
+      let year = '—';
+      let notes = '';
+      let boxRef = '';
+
+      for (const item of block) {
+        if (/^(?:صندوق|box)\s*([0-9١-٩]+)?/i.test(item)) {
+          boxRef = item;
+        } else if (/^(19\d\d|20\d\d|[١٢][٠-٩]{3})$/.test(item)) {
+          year = item;
+        } else if (/^[A-Z]{2,4}[0-9]{2,4}$/i.test(item)) {
+          supplierCode = item.toUpperCase();
+        } else if (/^(?:صورة|ملاحظ|note|image)/i.test(item) || item.includes('صورة') || item.includes('Sep-Oct')) {
+          notes = notes ? `${notes} · ${item}` : item;
+        } else {
+          if (!supplierName) {
+            supplierName = item;
+          } else {
+            notes = notes ? `${notes} · ${item}` : item;
+          }
+        }
+      }
+
+      if (supplierName) {
+        const noteParts = [
+          supplierCode !== '—' ? `كود: ${supplierCode}` : '',
+          boxRef ? boxRef : '',
+          notes ? notes : '',
+        ].filter(Boolean);
+
+        verticalResults.push({
+          supplierName,
+          docNo: supplierCode,
+          checkNo: year !== '—' ? year : '2017',
+          notes: noteParts.join(' · '),
+        });
+      }
+    }
+
+    if (verticalResults.length > 0) {
+      return verticalResults;
+    }
+  }
+
+  // 2. Standard delimiters: Tab, Comma, Pipe/Dash, or Single-Line
   const rows: ParsedSupplierRow[] = [];
 
-  for (const line of lines) {
+  for (const line of rawLines) {
     if (line.includes('\t')) {
-      // Direct Excel / Sheets copy-paste
       const parts = line.split('\t').map((p) => p.trim());
       rows.push({
         supplierName: parts[0] || '',
@@ -39,7 +117,6 @@ export function parsePastedSuppliers(text: string): ParsedSupplierRow[] {
         notes: parts.slice(3).join(' · ') || '',
       });
     } else if (line.includes(',') && !line.startsWith('"')) {
-      // CSV copy
       const parts = line.split(',').map((p) => p.trim());
       rows.push({
         supplierName: parts[0] || '',
@@ -57,7 +134,6 @@ export function parsePastedSuppliers(text: string): ParsedSupplierRow[] {
         notes: parts.slice(3).join(' · ') || '',
       });
     } else {
-      // Single supplier name per line
       rows.push({
         supplierName: line,
         docNo: '—',

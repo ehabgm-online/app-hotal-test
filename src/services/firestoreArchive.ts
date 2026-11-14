@@ -130,7 +130,19 @@ export function getLocalCachedBoxes(): ArchiveBox[] {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((b: any, idx: number) => sanitizeArchiveBox(b, idx + 1));
+          const cachedBoxes = parsed.map((b: any, idx: number) => sanitizeArchiveBox(b, idx + 1));
+          const existingIds = new Set(cachedBoxes.map((b) => b.id));
+          const missing = ARCHIVE_BOXES.filter((b) => !existingIds.has(b.id));
+          if (missing.length > 0) {
+            cachedBoxes.push(...missing);
+            cachedBoxes.sort((a, b) => a.id - b.id);
+            try {
+              localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(cachedBoxes));
+            } catch {
+              // ignore
+            }
+          }
+          return cachedBoxes;
         }
       }
     }

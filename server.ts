@@ -248,6 +248,91 @@ function buildHeuristicAiSearch(query: string) {
     };
   }
 
+  // Box 16 Suppliers Mappings (2017)
+  if (q.includes('دعشوشة') || q.includes('دعشوشه') || q.includes('علي جابر') || q.includes('cal013')) {
+    return {
+      targetSupplierName: 'Ali Gaber Ali Darwish (دعشوشة)',
+      alternateSearchTerms: ['Ali Gaber Ali Darwish', 'دعشوشة', 'CAL013'],
+      targetBoxNumber: 16,
+      targetYear: 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات وشيكات علي جابر علي درويش (دعشوشة) في الصندوق 16، الملف رقم 7 (كود المورد: CAL013).',
+      suggestedQueries: ['صندوق 16', 'شيكات صندوق 16', 'الأدغم'],
+    };
+  }
+
+  if (q.includes('الأدغم') || q.includes('الادغم') || q.includes('علي أدغم') || q.includes('adgham') || q.includes('cal019')) {
+    return {
+      targetSupplierName: 'Aly Ahmed Mohamed Ibrahim / Ali Adgham (الأدغم)',
+      alternateSearchTerms: ['Ali Adgham', 'الأدغم', 'CAL019'],
+      targetBoxNumber: 16,
+      targetYear: 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات علي أحمد محمد إبراهيم / علي أدغم في الصندوق 16، الملف رقم 11 (كود المورد: CAL019).',
+      suggestedQueries: ['صندوق 16', 'دعشوشة', 'الترانزيت'],
+    };
+  }
+
+  if (q.includes('ترانزيت') || q.includes('الترانزيت') || q.includes('نهاد محروس') || q.includes('cne006')) {
+    return {
+      targetSupplierName: 'Nehad Mahrous Karim (الترانزيت)',
+      alternateSearchTerms: ['Nehad Mahrous Karim', 'الترانزيت', 'CNE006'],
+      targetBoxNumber: 16,
+      targetYear: 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات نهاد محروس كريم (الترانزيت) في الصندوق 16، الملف رقم 14 (كود المورد: CNE006).',
+      suggestedQueries: ['صندوق 16', 'جرين لايف', 'نايل سكان'],
+    };
+  }
+
+  if (q.includes('جرين لايف') || q.includes('أسامة كامل') || q.includes('green life') || q.includes('cos003')) {
+    return {
+      targetSupplierName: 'Osama Kamel Abdel Fattah (جرين لايف للتوريدات الفندقية)',
+      alternateSearchTerms: ['Green Life', 'جرين لايف', 'COS003', 'أسامة كامل'],
+      targetBoxNumber: 16,
+      targetYear: 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات أسامة كامل عبد الفتاح (جرين لايف للتوريدات الفندقية) في الصندوق 16، الملف رقم 20 (كود: COS003).',
+      suggestedQueries: ['صندوق 16', 'نايل سكان', 'بتروكيما'],
+    };
+  }
+
+  if (q.includes('نايل سكان') || q.includes('nile scan') || q.includes('cni003')) {
+    return {
+      targetSupplierName: 'Nile Scan (نايل سكان)',
+      alternateSearchTerms: ['Nile Scan', 'نايل سكان', 'CNI003'],
+      targetBoxNumber: 16,
+      targetYear: 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات نايل سكان (Nile Scan) في الصندوق 16، الملف رقم 25 (كود: CNI003).',
+      suggestedQueries: ['صندوق 16', 'بتروكيما', 'بلان بي'],
+    };
+  }
+
+  if (q.includes('بتروكيما') || q.includes('بترو كيما') || q.includes('petro kima') || q.includes('cpe003')) {
+    return {
+      targetSupplierName: 'Petro Kima For Engineering & Contracting (بترو كيما)',
+      alternateSearchTerms: ['Petro Kima', 'بتروكيما', 'CPE003'],
+      targetBoxNumber: 16,
+      targetYear: 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات شركة بترو كيما للهندسة والمقاولات في الصندوق 16، الملف رقم 24 (كود: CPE003).',
+      suggestedQueries: ['صندوق 16', 'نايل سكان', 'بورسعيد للتوريدات'],
+    };
+  }
+
+  if (q.includes('office mix') || q.includes('أوفيس ميكس') || q.includes('cof001')) {
+    return {
+      targetSupplierName: 'Office Mix on Line (أوفيس ميكس)',
+      alternateSearchTerms: ['Office Mix', 'أوفيس ميكس', 'COF001'],
+      targetBoxNumber: 16,
+      targetYear: 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات أوفيس ميكس (Office Mix on Line) في الصندوق 16، الملف رقم 1 (كود: COF001).',
+      suggestedQueries: ['صندوق 16', 'أوميجا', 'نوفا للتوريدات'],
+    };
+  }
+
   if (q.includes('ريتز') || q.includes('شيلار') || q.includes('ritz') || q.includes('carlton')) {
     return {
       targetSupplierName: 'فندق الريتزكارلتون / شركة شيلار',
@@ -383,6 +468,11 @@ function buildHeuristicAiSearch(query: string) {
       11: 'الصندوق 11 يحتوي على مصاريف وجهات حكومية وفندق 2017 (بتروتريد، هيرو، الريتزكارلتون/شيلار، التأمينات).',
       12: 'الصندوق 12 يحتوي على شيكات ومستندات 2019 (بيبسي كولا، فلاور باور، كاجوال).',
       13: 'الصندوق 13 يحتوي على موردين وشيكات 2021 (دومتي، أميكو، الأنصاري، بيروت للألبان، كايرو ثري، أرما).',
+      14: 'الصندوق 14 يحتوي على مستندات وشيكات عامة لعام 2017.',
+      15: 'الصندوق 15 يحتوي على مستندات وشيكات الموردين لعام 2017.',
+      16: 'الصندوق 16 يحتوي على 25 مورد وشيكات ومستندات 2017 (Office Mix, دعشوشة, الأدغم, الترانزيت, جرين لايف, نايل سكان, بتروكيما, فارما سايبيتا).',
+      17: 'الصندوق 17 يحتوي على 16 مورد وشيكات ومستندات 2017 و 2016 (برو ميديا، ألفا، أحمد مجدي، محمد عزيز، النور، مؤسسة الأهرام، بست لخامات الأغذية، نو باجز، العابدين، عبده عرب، شركة المشروم، كاجوال، خيام نصار، المحمدي).',
+      18: 'الصندوق 18 يحتوي على 16 مورد وشيكات ومستندات 2017 و 2016 (نيو لاين للتوريدات، منير ناصيف هركوس، الشركة الاتحادية لتجارة الأسماك، أعلام النصر، نادرة إبراهيم داود البرانسي، الأهرام للاستيراد وتصدير جرام، موستانج ليموزين، شركة المشروم، بود إيجيبت، الشروق الجديدة، المحمدي محمد المحمدي، أحمد فتوح عبد المقصود تركة كف).',
     };
 
     return {
@@ -402,8 +492,8 @@ function buildHeuristicAiSearch(query: string) {
     targetBoxNumber,
     targetYear,
     fileType,
-    directAnswerAr: `تم تفعيل البحث الذكي المطابق لـ "${query}" عبر الصناديق الـ 13 وسجلات الموردين.`,
-    suggestedQueries: ['شيكات 2017', 'صندوق 13', 'دومتي'],
+    directAnswerAr: `تم تفعيل البحث الذكي المطابق لـ "${query}" عبر كافة صناديق الأرشيف وسجلات الموردين.`,
+    suggestedQueries: ['شيكات 2017', 'صندوق 16', 'دعشوشة'],
   };
 }
 
@@ -449,6 +539,9 @@ app.post('/api/ai-search', async (req, res) => {
 - صندوق 11: مصاريف وجهات حكومية وفندق 2017 (بتروتريد، هيرو للأغذية، فندق الريتزكارلتون/شركة شيلار، صيدناوي، الضرائب، التأمينات)
 - صندوق 12: شيكات ومستندات 2019 (بيبسي كولا مصر - مسجلة باسم Pepsi Coal Egypt، فلاور باور، كاجوال)
 - صندوق 13: موردين وشيكات 2021 (أميكو مصر، الأنصاري، دومتي/Arabian Co، باغيرا، بيروت للألبان، البدر، كايرو ثري، أرما للتجارة، أيمن أفندي، البيت العربي)
+- صندوق 14 & 15: مستندات وشيكات عامة للموردين 2017
+- صندوق 16: شيكات ومستندات موردين 2017 (أوفيس ميكس COF001، أوميجا COM002، أوليو COL001، نوفا CNU008، نورد سي CNO006، عصام جعفر CES003، دعشوشة CAL013، عبد الراضي CAH018، الإسكندرية للتنمية CAL008، الإسكندرية للتوريدات CAL018، الأدغم CAL019، محمد عزيز CMO005، 1984 CNI002، الترانزيت CNE006، نيو أوبتيمال CNE007، نيرست CNE008، راديو النيل CNI001، فارما سايبيتا CPH001، باك تك CPA002، جرين لايف COS003، بورسعيد CPO002، بي دبليو تي CPW001، بلان بي CPL001، بتروكيما CPE003، نايل سكان CNI003)
+- صندوق 17 & 18: شيكات وفواتير ومستندات الموردين لسنة 2017
 
 أجب دائماً بتنسيق JSON صالح حصراً بالحقول التالية بدون أي نص إضافي:
 {
@@ -548,7 +641,7 @@ app.post('/api/ai-search', async (req, res) => {
         });
 
         const generatePromise = geminiClient.models.generateContent({
-          model: customModel || 'gemini-3.8-flash',
+          model: customModel || 'gemini-2.5-flash',
           contents: `استعلام المستخدم: "${trimmedQuery}"`,
           config: {
             systemInstruction: systemPrompt,
@@ -610,16 +703,16 @@ app.post('/api/ai-vision-extract', async (req, res) => {
 مهمتك استخراج البيانات التالية من الصورة بدقة تامة وإرجاعها على شكل JSON صالح فقط:
 {
   "supplierName": string or null (اسم المورد أو الشركة بالعربي أو الإنجليزي),
-  "docNo": string or null (رقم المستند أو الفاتورة إن وجد مثل CMA001 أو CFO 002),
+  "docNo": string or null (رقم المستند أو الفاتورة إن وجد مثل COF001 أو CAL013 أو CMA001),
   "checkNo": string or null (رقم الشيك إن وجد),
   "amount": number or null (قيمة الفاتورة أو المبلغ إن وجد),
   "year": number or null (السنة المالية إن وجدت مثل 2016 أو 2017 أو 2019 أو 2021),
   "notes": string (ملخص محتوى المستند أو الفاتورة أو ملاحظات إضافية),
-  "suggestedBoxNumber": number or null (رقم الصندوق المتوقع بناء على محتوى المستند من 1 إلى 13)
+  "suggestedBoxNumber": number or null (رقم الصندوق المتوقع بناء على محتوى المستند من 1 إلى 16)
 }`;
 
     const response = await geminiClient.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-4-hydrogen',
       contents: [
         {
           inlineData: {

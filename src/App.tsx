@@ -39,10 +39,12 @@ import {
   Lightbulb,
   Mic,
   Camera,
+  CreditCard,
 } from 'lucide-react';
 import { askGeminiAiSearch, AiSearchResponse } from './utils/aiSearchService';
 import { AiSettingsModal } from './components/AiSettingsModal';
 import { AiImageScannerModal } from './components/AiImageScannerModal';
+import { ChecksVaultView } from './components/ChecksVaultView';
 import {
   ARCHIVE_BOXES,
   AVAILABLE_YEARS,
@@ -88,7 +90,7 @@ import {
   FileRowSkeleton,
 } from './components/ArchiveLoadingSkeleton';
 
-type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'qrcodes' | 'suppliers' | 'extraction-plan';
+type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'checks-vault' | 'qrcodes' | 'suppliers' | 'extraction-plan';
 type YearFilter = 'all' | number;
 type IntraSearchScope = 'current-box' | 'same-year';
 
@@ -219,11 +221,11 @@ export function App() {
     }, 2800);
   };
 
-  // Smooth initial loading skeleton transition
+  // Instant & smooth loading transition
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsInitialLoading(false);
-    }, 650);
+    }, 200);
     return () => clearTimeout(timer);
   }, []);
 
@@ -1088,6 +1090,7 @@ export function App() {
     dashboard: 'لوحة التحكم الرئيسية',
     search: 'البحث الذكي في الموردين والمستندات',
     boxes: `إدارة الصناديق · ${activeBox.titleAr}`,
+    'checks-vault': 'مخزن شيكات وفواتير الموردين العمومي',
     qrcodes: 'مركز رموز QR وطباعة ملصقات الباركود',
     suppliers: 'دليل الموردين الشامل وأماكن تواجدهم',
     'extraction-plan': 'خطة استخراج وتدقيق الموردين لكل صندوق',
@@ -1516,6 +1519,27 @@ export function App() {
                 <span>إدارة الصناديق</span>
               </span>
               <span className="text-xs font-mono-num opacity-80">{boxes.length}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveSection('checks-vault');
+                setMobileSidebarOpen(false);
+              }}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                activeSection === 'checks-vault'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+              }`}
+            >
+              <span className="flex items-center gap-3 whitespace-nowrap">
+                <CreditCard className="w-4 h-4 shrink-0 text-amber-400" />
+                <span className="font-bold">مخزن الشيكات والفواتير</span>
+              </span>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                شامل
+              </span>
             </button>
 
             <button
@@ -2085,7 +2109,7 @@ export function App() {
                     </span>
                   </div>
                   <h3 className="text-lg sm:text-xl font-bold font-display text-white">
-                    طباعة باركود ورموز QR لجميع الصناديق (1 إلى 13) دفعة واحدة
+                    طباعة باركود ورموز QR لجميع الصناديق (1 إلى {boxes.length}) دفعة واحدة
                   </h3>
                   <p className="text-xs text-slate-300 leading-relaxed max-w-3xl">
                     تم تصميم الملصقات خصيصاً للصقها على واجهة الصناديق الكرتونية، برقم صندوق عملاق
@@ -2336,7 +2360,7 @@ export function App() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">
-                      التوزيع الإحصائي للملفات داخل الصناديق (1 – 13)
+                      التوزيع الإحصائي للملفات داخل الصناديق (1 – {boxes.length})
                     </h2>
                     <p className="text-xs text-slate-500 mt-0.5">
                       اضغط على أي شريط لفتح الصندوق واستعراض الموردين والملفات بداخله
@@ -3440,6 +3464,22 @@ export function App() {
           )}
 
           {/* =========================================================
+              3.5 GENERAL SUPPLIER CHECKS & INVOICES VAULT (مخزن شيكات وفواتير الموردين العمومي)
+             ========================================================= */}
+          {activeSection === 'checks-vault' && (
+            <ChecksVaultView
+              boxes={boxes}
+              onAddRecord={handleAddSingleRecord}
+              onUpdateRecord={handleUpdateRecord}
+              onDeleteRecord={handleDeleteRecord}
+              onNavigateToBox={navigateToBox}
+              onOpenAiScanner={() => setIsAiImageScannerOpen(true)}
+              showToast={showToast}
+              yearFilter={yearFilter}
+            />
+          )}
+
+          {/* =========================================================
               4. QR CODES & BARCODE STICKER PRINTING CENTER
              ========================================================= */}
           {activeSection === 'qrcodes' && (
@@ -3684,7 +3724,7 @@ export function App() {
                     <span className="text-xs font-bold text-rose-800">مورد غير مؤرشف (أحمر)</span>
                   </div>
                   <div className="mt-2 text-[11px] text-rose-700 font-semibold">
-                    غير مسجلين في الصناديق 1 إلى 13
+                    غير مسجلين في الصناديق 1 إلى {boxes.length}
                   </div>
                 </div>
 
@@ -3944,7 +3984,7 @@ export function App() {
                               <div className="text-xs text-rose-800 bg-rose-100/60 rounded-xl p-3 border border-rose-200 space-y-1">
                                 <div className="font-bold flex items-center gap-1.5 text-rose-900">
                                   <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                                  <span>غير مدرج بأي من الصناديق (1 إلى 13)</span>
+                                  <span>غير مدرج بأي من الصناديق (1 إلى {boxes.length})</span>
                                 </div>
                                 <p className="text-[11px] text-rose-700 leading-relaxed">
                                   هذا المورد مستخرج من بيان المستندات المطلوب مطابقتها، لكنه غير مؤرشف حالياً في الصناديق.
@@ -4289,7 +4329,7 @@ export function App() {
         {/* Quiet Footer */}
         <footer className="no-print border-t border-slate-200 bg-white px-6 py-4 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-3">
           <div>
-            Smart Docs E-Archive · نظام إدارة وأرشفة المستندات للصناديق (1 إلى 13)
+            Smart Docs E-Archive · نظام إدارة وأرشفة المستندات للصناديق (1 إلى {boxes.length})
           </div>
           <div className="flex items-center gap-4">
             <button
@@ -4311,7 +4351,7 @@ export function App() {
             Quick 1-thumb navigation between main sections on mobile
            ========================================================= */}
         <nav
-          className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-1.5 flex items-center justify-around shadow-lg"
+          className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg"
           aria-label="شريط التنقل السريع للهاتف"
         >
           <button
@@ -4320,7 +4360,7 @@ export function App() {
               setActiveSection('dashboard');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`flex flex-col items-center gap-0.5 text-[11px] font-bold py-1 px-3 rounded-xl transition-colors cursor-pointer ${
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
               activeSection === 'dashboard'
                 ? 'text-blue-600'
                 : 'text-slate-500 hover:text-slate-900'
@@ -4336,14 +4376,14 @@ export function App() {
               setActiveSection('search');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`flex flex-col items-center gap-0.5 text-[11px] font-bold py-1 px-3 rounded-xl transition-colors cursor-pointer ${
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
               activeSection === 'search'
                 ? 'text-blue-600'
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
             <Search className="w-5 h-5" />
-            <span>البحث الذكي</span>
+            <span>البحث</span>
           </button>
 
           <button
@@ -4352,7 +4392,7 @@ export function App() {
               setActiveSection('boxes');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`flex flex-col items-center gap-0.5 text-[11px] font-bold py-1 px-3 rounded-xl transition-colors cursor-pointer ${
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
               activeSection === 'boxes'
                 ? 'text-blue-600'
                 : 'text-slate-500 hover:text-slate-900'
@@ -4365,10 +4405,26 @@ export function App() {
           <button
             type="button"
             onClick={() => {
+              setActiveSection('checks-vault');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
+              activeSection === 'checks-vault'
+                ? 'text-blue-600'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <CreditCard className="w-5 h-5" />
+            <span>الشيكات</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
               setActiveSection('qrcodes');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`flex flex-col items-center gap-0.5 text-[11px] font-bold py-1 px-3 rounded-xl transition-colors cursor-pointer ${
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
               activeSection === 'qrcodes'
                 ? 'text-blue-600'
                 : 'text-slate-500 hover:text-slate-900'
