@@ -59,8 +59,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 const BOXES_COLLECTION = 'boxes';
 const LOCAL_STORAGE_KEY = 'smart_docs_boxes_data_v1';
-const LOCAL_RECONCILE_FLAG = 'smart_docs_master_sync_v4';
-const MASTER_RECONCILE_CUTOFF_ISO = '2026-11-14T13:00:00.000Z';
+const LOCAL_RECONCILE_FLAG = 'smart_docs_master_sync_v5';
+const MASTER_RECONCILE_CUTOFF_ISO = '2026-11-14T23:59:59.000Z';
 
 function stripUndefinedDeep<T>(value: T): T {
   if (Array.isArray(value)) {
@@ -405,39 +405,46 @@ export async function deleteBoxFromCloud(boxId: number): Promise<void> {
 }
 
 /**
- * Batch seed boxes into Firestore
+ * Batch seed boxes into Firestore (chunked under 400 ops per batch for safety)
  */
 export async function seedFirestoreBoxes(boxes: ArchiveBox[]): Promise<void> {
   try {
-    const batch = writeBatch(db);
-    for (const box of boxes) {
-      const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(box.id));
-      batch.set(
-        docRef,
-        stripUndefinedDeep({
-          ...box,
-          updatedAt: new Date().toISOString(),
-        })
-      );
+    const CHUNK_SIZE = 350;
+    for (let i = 0; i < boxes.length; i += CHUNK_SIZE) {
+      const chunk = boxes.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      for (const box of chunk) {
+        const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(box.id));
+        batch.set(
+          docRef,
+          stripUndefinedDeep({
+            ...box,
+            updatedAt: new Date().toISOString(),
+          })
+        );
+      }
+      await batch.commit();
     }
-    await batch.commit();
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, BOXES_COLLECTION);
   }
 }
 
 /**
- * Reset Firestore collection back to original master 13 boxes
+ * Reset Firestore collection back to original master boxes
  */
 export async function resetCloudBoxesToDefault(): Promise<void> {
   try {
-    // First delete any boxes that are not in ARCHIVE_BOXES
     const snapshot = await getDocs(collection(db, BOXES_COLLECTION));
-    const batch = writeBatch(db);
-    snapshot.forEach((d) => {
-      batch.delete(d.ref);
-    });
-    await batch.commit();
+    const refs = snapshot.docs.map((d) => d.ref);
+    const CHUNK_SIZE = 350;
+    for (let i = 0; i < refs.length; i += CHUNK_SIZE) {
+      const batch = writeBatch(db);
+      for (const ref of refs.slice(i, i + CHUNK_SIZE)) {
+        batch.delete(ref);
+      }
+      await batch.commit();
+    }
 
     // Then seed initial boxes
     await seedFirestoreBoxes(ARCHIVE_BOXES);

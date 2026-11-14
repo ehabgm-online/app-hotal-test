@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Printer, Copy, Check, Download, ExternalLink, Share2 } from 'lucide-react';
+import { X, Printer, Copy, Check, Download, ExternalLink, Share2, Smartphone } from 'lucide-react';
 import { ArchiveBox } from '../data/archiveData';
 import { BoxQrCode, Code128Barcode } from './BoxCodes';
 
@@ -8,7 +8,7 @@ interface QrModalProps {
   onClose: () => void;
   getBoxUrl: (boxId: number) => string;
   onPrintSingle: (boxId: number) => void;
-  onOpenBox: (boxId: number) => void;
+  onOpenBox: (boxId: number, focused?: boolean) => void;
 }
 
 export const QrModal: React.FC<QrModalProps> = ({
@@ -18,20 +18,20 @@ export const QrModal: React.FC<QrModalProps> = ({
   onPrintSingle,
   onOpenBox,
 }) => {
-  const [copied, setCopied] = useState(false);
+  const [copiedType, setCopiedType] = useState<'url' | 'barcode' | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
   if (!box) return null;
 
   const boxUrl = getBoxUrl(box.id);
 
-  const handleCopy = async () => {
+  const handleCopy = async (text: string, type: 'url' | 'barcode') => {
     try {
-      await navigator.clipboard.writeText(boxUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(text);
+      setCopiedType(type);
+      setTimeout(() => setCopiedType((prev) => (prev === type ? null : prev)), 2000);
     } catch {
-      setCopied(false);
+      setCopiedType(null);
     }
   };
 
@@ -48,7 +48,7 @@ export const QrModal: React.FC<QrModalProps> = ({
         // User cancelled or fallback to copy
       }
     }
-    await handleCopy();
+    await handleCopy(boxUrl, 'url');
   };
 
   const handleDownloadPng = () => {
@@ -131,10 +131,27 @@ export const QrModal: React.FC<QrModalProps> = ({
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex flex-col items-center">
+            <div className="pt-3 border-t border-slate-100 flex flex-col items-center gap-2">
               <div className="w-full max-w-[240px]">
                 <Code128Barcode value={box.barcodeValue} height={44} />
               </div>
+              <button
+                type="button"
+                onClick={() => handleCopy(box.barcodeValue, 'barcode')}
+                className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-mono-num font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+              >
+                {copiedType === 'barcode' ? (
+                  <>
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span className="text-emerald-700">تم نسخ كود الباركود</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3 text-slate-500" />
+                    <span>نسخ كود الباركود: {box.barcodeValue}</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
@@ -152,10 +169,10 @@ export const QrModal: React.FC<QrModalProps> = ({
               </div>
               <button
                 type="button"
-                onClick={handleCopy}
+                onClick={() => handleCopy(boxUrl, 'url')}
                 className="px-3.5 py-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-medium text-slate-800 flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
-                {copied ? (
+                {copiedType === 'url' ? (
                   <>
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
                     <span className="text-emerald-700">تم النسخ</span>
@@ -180,34 +197,46 @@ export const QrModal: React.FC<QrModalProps> = ({
           </div>
 
           {/* Action Controls */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
             <button
               type="button"
               onClick={() => onPrintSingle(box.id)}
-              className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer transition-colors"
+              className="py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
             >
-              <Printer className="w-4 h-4" />
-              <span>طباعة ملصق الصندوق</span>
+              <Printer className="w-4 h-4 shrink-0" />
+              <span>طباعة الملصق</span>
             </button>
 
             <button
               type="button"
               onClick={handleDownloadPng}
-              className="py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-medium flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer transition-colors"
+              className="py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-medium flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
             >
-              <Download className="w-4 h-4 text-slate-500" />
-              <span>حفظ صورة QR</span>
+              <Download className="w-4 h-4 text-slate-500 shrink-0" />
+              <span>حفظ QR</span>
             </button>
 
             <button
               type="button"
               onClick={() => {
-                onOpenBox(box.id);
+                onOpenBox(box.id, true);
                 onClose();
               }}
-              className="py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-medium flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer transition-colors"
+              className="py-2.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-800 text-xs font-bold flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
             >
-              <ExternalLink className="w-4 h-4 text-slate-500" />
+              <Smartphone className="w-4 h-4 shrink-0" />
+              <span>وضع الجوال</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                onOpenBox(box.id, false);
+                onClose();
+              }}
+              className="py-2.5 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-medium flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
+            >
+              <ExternalLink className="w-4 h-4 text-slate-500 shrink-0" />
               <span>فتح الصندوق</span>
             </button>
           </div>

@@ -108,6 +108,15 @@ export function buildStandaloneSingleFileHtml(
     let globalQuery = '';
     let boxQuery = '';
 
+    function escapeHtml(val) {
+      return String(val == null ? '' : val)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function saveBoxesToStorage() {
       try {
         localStorage.setItem('smart_docs_boxes_data_v1', JSON.stringify(BOXES));
@@ -173,6 +182,10 @@ export function buildStandaloneSingleFileHtml(
 
     function saveNewBox() {
       const id = Number(document.getElementById('new-box-num').value) || (BOXES.length + 1);
+      if (BOXES.some(b => b.id === id)) {
+        alert('رقم الصندوق ' + id + ' مسجل بالفعل. يرجى اختيار رقم آخر.');
+        return;
+      }
       const year = Number(document.getElementById('new-box-year').value) || 2024;
       const title = document.getElementById('new-box-title').value || ('صندوق ' + id);
       const scope = document.getElementById('new-box-scope').value || 'مستندات وتوريدات';
@@ -202,6 +215,7 @@ export function buildStandaloneSingleFileHtml(
       };
 
       BOXES.push(newBox);
+      BOXES.sort((a, b) => a.id - b.id);
       saveBoxesToStorage();
       document.getElementById('modal-container').innerHTML = '';
       switchTab('boxes', id);
@@ -262,20 +276,20 @@ export function buildStandaloneSingleFileHtml(
         <div class="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4">
           <div class="bg-white rounded-2xl p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl" dir="rtl">
             <div class="flex items-center justify-between border-b pb-3">
-              <h3 class="font-bold text-lg text-slate-900">تحرير بيانات \${box.titleAr}</h3>
+              <h3 class="font-bold text-lg text-slate-900">تحرير بيانات \${escapeHtml(box.titleAr)}</h3>
               <button onclick="document.getElementById('modal-container').innerHTML=''" class="text-slate-400 hover:text-slate-900"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
             <div class="grid grid-cols-2 gap-3 text-xs">
-              <div><label class="font-semibold block mb-1">اسم الصندوق:</label><input id="edit-box-title" type="text" value="\${box.titleAr}" class="w-full border p-2 rounded font-bold" /></div>
-              <div><label class="font-semibold block mb-1">السنة المالية:</label><input id="edit-box-year" type="number" value="\${box.primaryYear}" class="w-full border p-2 rounded" /></div>
+              <div><label class="font-semibold block mb-1">اسم الصندوق:</label><input id="edit-box-title" type="text" value="\${escapeHtml(box.titleAr)}" class="w-full border p-2 rounded font-bold" /></div>
+              <div><label class="font-semibold block mb-1">السنة المالية:</label><input id="edit-box-year" type="number" value="\${escapeHtml(box.primaryYear)}" class="w-full border p-2 rounded" /></div>
             </div>
             <div class="text-xs">
               <label class="font-semibold block mb-1">العنوان الفرعي / الوصف:</label>
-              <input id="edit-box-sub" type="text" value="\${box.subtitleAr}" class="w-full border p-2 rounded" />
+              <input id="edit-box-sub" type="text" value="\${escapeHtml(box.subtitleAr)}" class="w-full border p-2 rounded" />
             </div>
             <div class="text-xs">
               <label class="font-semibold block mb-1">التصنيف:</label>
-              <input id="edit-box-cat" type="text" value="\${box.categoryScope}" class="w-full border p-2 rounded" />
+              <input id="edit-box-cat" type="text" value="\${escapeHtml(box.categoryScope)}" class="w-full border p-2 rounded" />
             </div>
             <div class="flex items-center justify-between pt-3 border-t">
               <button onclick="if(confirm('هل أنت متأكد من حذف هذا الصندوق؟')){BOXES=BOXES.filter(b=>b.id!==\${box.id});saveBoxesToStorage();document.getElementById('modal-container').innerHTML='';switchTab('boxes',BOXES[0]?BOXES[0].id:1);}" class="text-xs text-rose-600 hover:text-rose-800 font-bold">حذف الصندوق</button>
@@ -294,7 +308,7 @@ export function buildStandaloneSingleFileHtml(
       if (!box) return;
       box.titleAr = document.getElementById('edit-box-title').value.trim() || box.titleAr;
       box.primaryYear = Number(document.getElementById('edit-box-year').value) || box.primaryYear;
-      box.years = [box.primaryYear];
+      box.years = Array.from(new Set([box.primaryYear].concat((box.files || []).map(f => Number(f.year)).filter(Boolean)))).sort((a, b) => b - a);
       box.subtitleAr = document.getElementById('edit-box-sub').value.trim() || box.subtitleAr;
       box.categoryScope = document.getElementById('edit-box-cat').value.trim() || box.categoryScope;
       saveBoxesToStorage();
@@ -435,7 +449,7 @@ export function buildStandaloneSingleFileHtml(
               <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl"><i class="fa-solid fa-building"></i></div>
             </div>
             <div class="bg-white border border-slate-200 rounded-xl p-5 flex items-center justify-between">
-              <div><div class="text-xs text-slate-500">السنوات المالية المشمولة</div><div class="text-xl font-bold mono mt-1 text-slate-900">2016 · 2017 · 2019 · 2021</div><div class="text-xs text-amber-600 mt-1">جاهزة للبحث والطباعة</div></div>
+              <div><div class="text-xs text-slate-500">السنوات المالية المشمولة</div><div class="text-xl font-bold mono mt-1 text-slate-900">${allYears.join(' · ')}</div><div class="text-xs text-amber-600 mt-1">جاهزة للبحث والطباعة</div></div>
               <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl"><i class="fa-solid fa-calendar-check"></i></div>
             </div>
           </div>
@@ -447,7 +461,7 @@ export function buildStandaloneSingleFileHtml(
             </div>
             <div class="relative">
               <i class="fa-solid fa-magnifying-glass absolute right-4 top-3.5 text-slate-400"></i>
-              <input type="text" value="\${globalQuery}" oninput="globalQuery=this.value;switchTab('search')" placeholder="اكتب اسم المورد (مثال: Domty، المعادي، بتروتريد، Mohamed Aziz، CMO003)..." class="w-full pr-11 pl-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600" />
+              <input type="text" value="\${escapeHtml(globalQuery)}" oninput="globalQuery=this.value;switchTab('search')" placeholder="اكتب اسم المورد (مثال: Domty، المعادي، بتروتريد، Mohamed Aziz، CMO003)..." class="w-full pr-11 pl-4 py-2.5 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600" />
             </div>
           </div>
 
@@ -456,10 +470,10 @@ export function buildStandaloneSingleFileHtml(
               <div class="bg-white border border-slate-200 rounded-xl p-5 flex flex-col justify-between hover:border-blue-400 transition-colors">
                 <div>
                   <div class="flex items-center justify-between">
-                    <span class="font-display font-bold text-lg text-slate-900">\${b.titleAr}</span>
-                    <span class="mono text-xs text-slate-500">\${b.code} · \${b.years.join('/')}</span>
+                    <span class="font-display font-bold text-lg text-slate-900">\${escapeHtml(b.titleAr)}</span>
+                    <span class="mono text-xs text-slate-500">\${escapeHtml(b.code)} · \${escapeHtml(b.years.join('/'))}</span>
                   </div>
-                  <p class="text-xs text-slate-500 mt-1">\${b.categoryScope}</p>
+                  <p class="text-xs text-slate-500 mt-1">\${escapeHtml(b.categoryScope)}</p>
                 </div>
                 <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
                   <span class="text-sm font-semibold mono text-slate-800">\${b.files.length} ملف</span>
@@ -486,7 +500,7 @@ export function buildStandaloneSingleFileHtml(
           <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
             <div class="relative">
               <i class="fa-solid fa-magnifying-glass absolute right-4 top-3.5 text-slate-400"></i>
-              <input id="search-input" type="text" value="\${globalQuery}" oninput="globalQuery=this.value;render();const inp=document.getElementById('search-input');inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);" placeholder="ابحث باسم المورد، الشركة، رقم المستند، أو رقم الشيك..." class="w-full pr-11 pl-4 py-3 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600" />
+              <input id="search-input" type="text" value="\${escapeHtml(globalQuery)}" oninput="globalQuery=this.value;render();const inp=document.getElementById('search-input');inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);" placeholder="ابحث باسم المورد، الشركة، رقم المستند، أو رقم الشيك..." class="w-full pr-11 pl-4 py-3 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600" />
             </div>
             <div class="text-xs text-slate-500">عدد النتائج المطابقة: <strong class="mono text-slate-900">\${matches.length}</strong> مستند</div>
             <div class="overflow-x-auto border border-slate-200 rounded-xl">
@@ -504,11 +518,11 @@ export function buildStandaloneSingleFileHtml(
                 <tbody class="divide-y divide-slate-100">
                   \${matches.map(m => \`
                     <tr class="hover:bg-blue-50/40">
-                      <td class="px-4 py-2.5 font-semibold text-blue-700 whitespace-nowrap">\${m.boxTitle}</td>
-                      <td class="px-4 py-2.5 mono text-xs text-slate-600 whitespace-nowrap">\${m.envelopeLabel}</td>
-                      <td class="px-4 py-2.5 font-medium text-slate-900">\${m.supplierName}</td>
-                      <td class="px-4 py-2.5 mono text-xs text-slate-700">\${m.docNo}</td>
-                      <td class="px-4 py-2.5 mono text-xs text-slate-600">\${m.checkNo !== '—' ? m.checkNo : m.year}</td>
+                      <td class="px-4 py-2.5 font-semibold text-blue-700 whitespace-nowrap">\${escapeHtml(m.boxTitle)}</td>
+                      <td class="px-4 py-2.5 mono text-xs text-slate-600 whitespace-nowrap">\${escapeHtml(m.envelopeLabel)}</td>
+                      <td class="px-4 py-2.5 font-medium text-slate-900">\${escapeHtml(m.supplierName)}</td>
+                      <td class="px-4 py-2.5 mono text-xs text-slate-700">\${escapeHtml(m.docNo)}</td>
+                      <td class="px-4 py-2.5 mono text-xs text-slate-600">\${escapeHtml(m.checkNo !== '—' ? m.checkNo : m.year)}</td>
                       <td class="px-4 py-2.5"><button onclick="switchTab('boxes', \${m.boxId})" class="text-xs text-blue-600 hover:underline whitespace-nowrap">فتح الصندوق</button></td>
                     </tr>
                   \`).join('')}
@@ -528,15 +542,15 @@ export function buildStandaloneSingleFileHtml(
           <div class="flex flex-wrap gap-2">
             \${BOXES.map(b => \`
               <button onclick="activeBoxId=\${b.id};boxQuery='';render()" class="px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors \${b.id === box.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-200 hover:border-blue-400'}">
-                \${b.titleAr} <span class="mono opacity-80">(\${b.files.length})</span>
+                \${escapeHtml(b.titleAr)} <span class="mono opacity-80">(\${b.files.length})</span>
               </button>
             \`).join('')}
           </div>
           <div class="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div>
-                <h2 class="font-display font-bold text-xl text-slate-900">\${box.titleAr} — \${box.subtitleAr}</h2>
-                <p class="text-xs text-slate-500 mt-1">\${box.categoryScope} · الكود: <span class="mono">\${box.barcodeValue}</span> · إجمالي الملفات: <span class="mono font-semibold">\${box.files.length}</span></p>
+                <h2 class="font-display font-bold text-xl text-slate-900">\${escapeHtml(box.titleAr)} — \${escapeHtml(box.subtitleAr)}</h2>
+                <p class="text-xs text-slate-500 mt-1">\${escapeHtml(box.categoryScope)} · الكود: <span class="mono">\${escapeHtml(box.barcodeValue)}</span> · إجمالي الملفات: <span class="mono font-semibold">\${box.files.length}</span></p>
               </div>
               <div class="flex items-center gap-2">
                 <button onclick="openEditBoxDialog(\${box.id})" class="px-3 py-2 text-xs border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold rounded-lg flex items-center gap-1.5"><i class="fa-solid fa-pen"></i><span>تحرير الصندوق</span></button>
@@ -547,34 +561,34 @@ export function buildStandaloneSingleFileHtml(
             </div>
             <div class="relative">
               <i class="fa-solid fa-magnifying-glass absolute right-3.5 top-3 text-slate-400 text-sm"></i>
-              <input id="box-search" type="text" value="\${boxQuery}" oninput="boxQuery=this.value;render();const inp=document.getElementById('box-search');inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);" placeholder="ابحث داخل \${box.titleAr} عن اسم المورد أو رقم المستند..." class="w-full pr-10 pl-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-600" />
+              <input id="box-search" type="text" value="\${escapeHtml(boxQuery)}" oninput="boxQuery=this.value;render();const inp=document.getElementById('box-search');inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);" placeholder="ابحث داخل \${escapeHtml(box.titleAr)} عن اسم المورد أو رقم المستند..." class="w-full pr-10 pl-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-blue-600" />
             </div>
             <!-- Mobile Cards View for Phones & Tablets -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 md:hidden">
               \${rows.map(r => \`
                 <div class="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2.5 shadow-xs">
                   <div class="flex items-center justify-between border-b pb-2">
-                    <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold text-xs mono">\${r.envelopeLabel}</span>
+                    <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold text-xs mono">\${escapeHtml(r.envelopeLabel)}</span>
                     <div class="flex items-center gap-1.5">
-                      <span class="text-[11px] mono text-slate-500">\${r.checkNo !== '—' ? r.checkNo : r.year}</span>
+                      <span class="text-[11px] mono text-slate-500">\${escapeHtml(r.checkNo !== '—' ? r.checkNo : r.year)}</span>
                       <button onclick="deleteSupplierRow(\${box.id}, \${r.fileNo})" class="text-rose-600 hover:text-rose-800 p-1" title="حذف"><i class="fa-solid fa-trash text-xs"></i></button>
                     </div>
                   </div>
                   <div>
                     <span class="text-[10px] text-slate-400 block font-semibold">اسم المورد:</span>
-                    <h4 class="font-bold text-base text-slate-900 leading-snug">\${r.supplierName}</h4>
+                    <h4 class="font-bold text-base text-slate-900 leading-snug">\${escapeHtml(r.supplierName)}</h4>
                   </div>
                   <div class="grid grid-cols-2 gap-2 text-xs">
                     <div class="bg-slate-50 p-2 rounded border border-slate-100">
                       <span class="text-[10px] text-slate-400 block font-medium">المستند</span>
-                      <span class="mono font-bold text-blue-700">\${r.docNo}</span>
+                      <span class="mono font-bold text-blue-700">\${escapeHtml(r.docNo)}</span>
                     </div>
                     <div class="bg-slate-50 p-2 rounded border border-slate-100">
                       <span class="text-[10px] text-slate-400 block font-medium">الشيك / السنة</span>
-                      <span class="mono font-bold text-slate-800">\${r.checkNo !== '—' ? r.checkNo : r.year}</span>
+                      <span class="mono font-bold text-slate-800">\${escapeHtml(r.checkNo !== '—' ? r.checkNo : r.year)}</span>
                     </div>
                   </div>
-                  \${r.notes && r.notes !== '—' ? \`<div class="text-[11px] text-slate-600 bg-amber-50/70 p-1.5 rounded">\${r.notes}</div>\` : ''}
+                  \${r.notes && r.notes !== '—' ? \`<div class="text-[11px] text-slate-600 bg-amber-50/70 p-1.5 rounded">\${escapeHtml(r.notes)}</div>\` : ''}
                 </div>
               \`).join('')}
             </div>
@@ -597,11 +611,11 @@ export function buildStandaloneSingleFileHtml(
                   \${rows.map(r => \`
                     <tr class="hover:bg-slate-50">
                       <td class="px-4 py-2.5 mono text-xs text-slate-500">\${r.fileNo}</td>
-                      <td class="px-4 py-2.5 text-xs text-slate-700 whitespace-nowrap">\${r.envelopeLabel}</td>
-                      <td class="px-4 py-2.5 font-semibold text-slate-900">\${r.supplierName}</td>
-                      <td class="px-4 py-2.5 mono text-xs text-blue-700">\${r.docNo}</td>
-                      <td class="px-4 py-2.5 mono text-xs text-slate-700">\${r.checkNo !== '—' ? r.checkNo : r.year}</td>
-                      <td class="px-4 py-2.5 text-xs text-slate-500">\${r.notes}</td>
+                      <td class="px-4 py-2.5 text-xs text-slate-700 whitespace-nowrap">\${escapeHtml(r.envelopeLabel)}</td>
+                      <td class="px-4 py-2.5 font-semibold text-slate-900">\${escapeHtml(r.supplierName)}</td>
+                      <td class="px-4 py-2.5 mono text-xs text-blue-700">\${escapeHtml(r.docNo)}</td>
+                      <td class="px-4 py-2.5 mono text-xs text-slate-700">\${escapeHtml(r.checkNo !== '—' ? r.checkNo : r.year)}</td>
+                      <td class="px-4 py-2.5 text-xs text-slate-500">\${escapeHtml(r.notes)}</td>
                       <td class="px-3 py-2.5 text-center"><button onclick="deleteSupplierRow(\${box.id}, \${r.fileNo})" class="text-rose-600 hover:text-rose-800 p-1" title="حذف المورد"><i class="fa-solid fa-trash"></i></button></td>
                     </tr>
                   \`).join('')}

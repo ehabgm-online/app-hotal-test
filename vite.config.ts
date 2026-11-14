@@ -83,6 +83,13 @@ export default defineConfig(() => {
               url: '/?scan=1',
               icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
             },
+            {
+              name: 'مسح باركود الصندوق',
+              short_name: 'ماسح QR',
+              description: 'فتح صندوق عبر مسح رمز QR أو الباركود أو الرقم',
+              url: '/?quickscan=1',
+              icons: [{ src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+            },
           ],
         },
         workbox: {
