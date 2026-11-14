@@ -8,12 +8,17 @@ export function buildStandaloneSingleFileHtml(
   const boxesJson = JSON.stringify(data);
   const safeBaseUrl = baseUrl.replace(/[?#].*$/, '');
 
+  const totalFilesCount = data.reduce((sum, b) => sum + b.files.length, 0);
+  const allYears = Array.from(
+    new Set(data.flatMap((b) => (Array.isArray(b.years) ? b.years : [b.primaryYear])))
+  ).sort((a, b) => a - b);
+
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Smart Docs E-Archive | نظام الأرشفة الذكي للصناديق (1 - 13)</title>
+  <title>Smart Docs E-Archive | نظام الأرشفة الذكي للصناديق (${data.length} صندوق)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
@@ -51,14 +56,14 @@ export function buildStandaloneSingleFileHtml(
         <i class="fa-solid fa-magnifying-glass w-4"></i><span>البحث الذكي</span>
       </button>
       <button onclick="switchTab('boxes')" id="nav-boxes" class="nav-btn w-full text-right px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-3 whitespace-nowrap text-slate-300 hover:bg-slate-800/70">
-        <i class="fa-solid fa-box-archive w-4"></i><span>إدارة الصناديق (1-13)</span>
+        <i class="fa-solid fa-box-archive w-4"></i><span>إدارة الصناديق (${data.length})</span>
       </button>
       <button onclick="switchTab('qrcodes')" id="nav-qrcodes" class="nav-btn w-full text-right px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-3 whitespace-nowrap text-slate-300 hover:bg-slate-800/70">
         <i class="fa-solid fa-qrcode w-4"></i><span>رموز QR والباركود</span>
       </button>
     </nav>
     <div class="hidden lg:block p-4 border-t border-slate-800/80 text-xs text-slate-400">
-      إجمالي الصناديق المؤرشفة: 13 صندوق · 291 ملف
+      إجمالي الصناديق المؤرشفة: ${data.length} صندوق · ${totalFilesCount} ملف
     </div>
   </aside>
 
@@ -69,10 +74,8 @@ export function buildStandaloneSingleFileHtml(
       <div class="flex items-center gap-2">
         <label class="text-xs text-slate-500">تصفية السنة:</label>
         <select id="global-year" onchange="onYearChange(this.value)" class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-slate-50 mono">
-          <option value="all">كل السنوات (2017 - 2021)</option>
-          <option value="2017">2017</option>
-          <option value="2019">2019</option>
-          <option value="2021">2021</option>
+          <option value="all">كل السنوات (${allYears[0] || 2016} - ${allYears[allYears.length - 1] || 2021})</option>
+          ${allYears.map((y) => `<option value="${y}">${y}</option>`).join('')}
         </select>
         <button onclick="openCreateBoxDialog()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 shadow-sm">
           <i class="fa-solid fa-plus"></i><span>+ إنشاء صندوق جديد</span>
@@ -359,7 +362,7 @@ export function buildStandaloneSingleFileHtml(
       });
       const activeBtn = document.getElementById('nav-' + tab);
       if (activeBtn) activeBtn.className = 'nav-btn w-full text-right px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-3 whitespace-nowrap bg-blue-600 text-white';
-      const titles = { dashboard: 'لوحة التحكم الرئيسية', search: 'البحث الذكي في الصناديق والموردين', boxes: 'إدارة واستعراض الصناديق (1 - 13)', qrcodes: 'توليد رموز QR وطباعة الباركود' };
+      const titles = { dashboard: 'لوحة التحكم الرئيسية', search: 'البحث الذكي في الصناديق والموردين', boxes: 'إدارة واستعراض الصناديق (' + BOXES.length + ' صندوق)', qrcodes: 'توليد رموز QR وطباعة الباركود' };
       document.getElementById('page-heading').textContent = titles[tab] || '';
       render();
     }
@@ -432,7 +435,7 @@ export function buildStandaloneSingleFileHtml(
               <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl"><i class="fa-solid fa-building"></i></div>
             </div>
             <div class="bg-white border border-slate-200 rounded-xl p-5 flex items-center justify-between">
-              <div><div class="text-xs text-slate-500">السنوات المالية المشمولة</div><div class="text-2xl font-bold mono mt-1 text-slate-900">2017 · 2019 · 2021</div><div class="text-xs text-amber-600 mt-1">جاهزة للبحث والطباعة</div></div>
+              <div><div class="text-xs text-slate-500">السنوات المالية المشمولة</div><div class="text-xl font-bold mono mt-1 text-slate-900">2016 · 2017 · 2019 · 2021</div><div class="text-xs text-amber-600 mt-1">جاهزة للبحث والطباعة</div></div>
               <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl"><i class="fa-solid fa-calendar-check"></i></div>
             </div>
           </div>

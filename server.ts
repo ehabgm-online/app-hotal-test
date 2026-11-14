@@ -20,7 +20,30 @@ const cliHost = hostArgIndex !== -1 && process.argv[hostArgIndex + 1] ? process.
 const PORT = !isNaN(cliPort) ? cliPort : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 const HOST = cliHost || process.env.HOST || '0.0.0.0';
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+
+function safeParseAiJson<T = any>(rawText: string | undefined | null): T | null {
+  if (!rawText || typeof rawText !== 'string') return null;
+  const cleaned = rawText
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .trim();
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1)) as T;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
 
 // Initialize Google GenAI client (User-Agent header required by skill)
 const getGeminiClient = () => {
@@ -580,7 +603,7 @@ app.post('/api/ai-search', async (req, res) => {
       if (openAiRes.ok) {
         const json = await openAiRes.json();
         const content = json.choices?.[0]?.message?.content;
-        if (content) parsedData = JSON.parse(content);
+        parsedData = safeParseAiJson(content);
       }
     } else if (provider === 'anthropic' && customApiKey) {
       const anthroRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -600,11 +623,7 @@ app.post('/api/ai-search', async (req, res) => {
       if (anthroRes.ok) {
         const json = await anthroRes.json();
         const textBlock = json.content?.[0]?.text;
-        if (textBlock) {
-          // extract JSON if wrapped in markdown
-          const cleanJson = textBlock.replace(/```json/g, '').replace(/```/g, '').trim();
-          parsedData = JSON.parse(cleanJson);
-        }
+        parsedData = safeParseAiJson(textBlock);
       }
     } else if (provider === 'deepseek' && customApiKey) {
       const dsRes = await fetch('https://api.deepseek.com/chat/completions', {
@@ -626,7 +645,7 @@ app.post('/api/ai-search', async (req, res) => {
       if (dsRes.ok) {
         const json = await dsRes.json();
         const content = json.choices?.[0]?.message?.content;
-        if (content) parsedData = JSON.parse(content);
+        parsedData = safeParseAiJson(content);
       }
     }
 
@@ -640,23 +659,29 @@ app.post('/api/ai-search', async (req, res) => {
           httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
         });
 
+        const requestedModel =
+          customModel && customModel !== 'gemini-3.8-flash' ? customModel : 'gemini-4-hydrogen';
+        const supportsThinkingLevel =
+          requestedModel.startsWith('gemini-4') || requestedModel.startsWith('gemini-3');
+
         const generatePromise = geminiClient.models.generateContent({
-          model: customModel || 'gemini-2.5-flash',
+          model: requestedModel,
           contents: `استعلام المستخدم: "${trimmedQuery}"`,
           config: {
             systemInstruction: systemPrompt,
             responseMimeType: 'application/json',
-            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+            ...(supportsThinkingLevel
+              ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+              : {}),
           },
         });
 
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('AI Request timeout')), 5000)
+          setTimeout(() => reject(new Error('AI Request timeout')), 12000)
         );
 
         const response = (await Promise.race([generatePromise, timeoutPromise])) as any;
-        const text = response?.text || '{}';
-        parsedData = JSON.parse(text);
+        parsedData = safeParseAiJson(response?.text);
       }
     }
 
@@ -708,28 +733,36 @@ app.post('/api/ai-vision-extract', async (req, res) => {
   "amount": number or null (قيمة الفاتورة أو المبلغ إن وجد),
   "year": number or null (السنة المالية إن وجدت مثل 2016 أو 2017 أو 2019 أو 2021),
   "notes": string (ملخص محتوى المستند أو الفاتورة أو ملاحظات إضافية),
-  "suggestedBoxNumber": number or null (رقم الصندوق المتوقع بناء على محتوى المستند من 1 إلى 16)
+  "suggestedBoxNumber": number or null (رقم الصندوق المتوقع بناء على محتوى المستند من 1 إلى 18، أو 101 إلى 109 لسنة 2016)
 }`;
+
+    const cleanBase64 = typeof imageBase64 === 'string'
+      ? imageBase64.replace(/^data:[^;]+;base64,/i, '')
+      : '';
 
     const response = await geminiClient.models.generateContent({
       model: 'gemini-4-hydrogen',
-      contents: [
-        {
-          inlineData: {
-            data: imageBase64.replace(/^data:image\/[a-z]+;base64,/, ''),
-            mimeType: mimeType || 'image/jpeg',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: cleanBase64,
+              mimeType: mimeType || 'image/jpeg',
+            },
           },
-        },
-        { text: visionPrompt },
-      ],
+          { text: visionPrompt },
+        ],
+      },
       config: {
         responseMimeType: 'application/json',
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     });
 
-    const text = response?.text || '{}';
-    const extractedData = JSON.parse(text);
+    const extractedData = safeParseAiJson(response?.text);
+    if (!extractedData) {
+      return res.status(422).json({ error: 'تعذر تحليل بيانات الصورة بتنسيق صالح، حاول بصورة أوضح.' });
+    }
 
     return res.json({
       success: true,
@@ -746,10 +779,33 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
+    process.env.DISABLE_HMR = process.env.DISABLE_HMR || 'true';
     const { createServer } = await import('vite');
     const vite = await createServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        ws: false,
+        watch: null,
+      },
       appType: 'spa',
+    });
+    app.get('/@vite/client', async (_req, res, next) => {
+      try {
+        const result = await vite.transformRequest('/@vite/client');
+        if (!result || !result.code) {
+          return next();
+        }
+        const cleanCode = result.code.replace(
+          'transport.connect(createHMRHandler(handleMessage));',
+          '/* HMR WebSocket disabled */'
+        );
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
+        return res.send(cleanCode);
+      } catch (err) {
+        return next(err);
+      }
     });
     app.use(vite.middlewares);
   } else {

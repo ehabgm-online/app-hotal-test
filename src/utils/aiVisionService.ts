@@ -33,14 +33,20 @@ export async function extractDocumentFromImage(file: File): Promise<VisionExtrac
     });
 
     if (!res.ok) {
-      console.warn('AI vision extract non-200 status:', res.status);
-      return null;
+      let errMsg = `فشل تحليل الصورة (${res.status})`;
+      try {
+        const errBody = await res.json();
+        if (errBody?.error) errMsg = String(errBody.error);
+      } catch {
+        // ignore JSON parse error on non-200 body
+      }
+      throw new Error(errMsg);
     }
 
     const data = await res.json();
     return data?.extractedData || null;
   } catch (err) {
     console.error('Failed to process image via AI vision:', err);
-    return null;
+    throw err instanceof Error ? err : new Error('تعذر الاتصال بخدمة تحليل الصور.');
   }
 }

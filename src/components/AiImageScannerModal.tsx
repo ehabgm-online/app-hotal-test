@@ -23,8 +23,9 @@ export function AiImageScannerModal({
   const [loading, setLoading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [extracted, setExtracted] = useState<VisionExtractedData | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [matchedBox, setMatchedBox] = useState<{ box: ArchiveBox; matchScore: number } | null>(null);
-  const [selectedTargetBoxId, setSelectedTargetBoxId] = useState<number>(1);
+  const [selectedTargetBoxId, setSelectedTargetBoxId] = useState<number>(() => boxes[0]?.id || 1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -36,6 +37,12 @@ export function AiImageScannerModal({
     };
   }, [previewUrl]);
 
+  React.useEffect(() => {
+    if (!boxes.some((b) => b.id === selectedTargetBoxId) && boxes.length > 0) {
+      setSelectedTargetBoxId(boxes[0].id);
+    }
+  }, [boxes, selectedTargetBoxId]);
+
   if (!isOpen) return null;
 
   const processFile = async (file: File) => {
@@ -44,6 +51,7 @@ export function AiImageScannerModal({
     }
     setPreviewUrl(URL.createObjectURL(file));
     setLoading(true);
+    setScanError(null);
     setExtracted(null);
     setMatchedBox(null);
 
@@ -51,8 +59,10 @@ export function AiImageScannerModal({
       const data = await extractDocumentFromImage(file);
       if (data) {
         setExtracted(data);
-        if (data.suggestedBoxNumber) {
+        if (data.suggestedBoxNumber && boxes.some((b) => b.id === data.suggestedBoxNumber)) {
           setSelectedTargetBoxId(data.suggestedBoxNumber);
+        } else if (boxes.length > 0) {
+          setSelectedTargetBoxId(boxes[0].id);
         }
 
         // Check if supplier exists in boxes
@@ -72,11 +82,14 @@ export function AiImageScannerModal({
         }
         showToast('تم فحص المستند واستخراج البيانات بدقة بالذكاء الاصطناعي!');
       } else {
+        setScanError('تعذر استخراج البيانات من الصورة، يرجى المحاولة بصورة أوضح.');
         showToast('تعذر استخراج البيانات من الصورة، يرجى المحاولة بصورة أوضح.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      showToast('حدث خطأ أثناء معالجة الصورة.');
+      const errMsg = err?.message || 'حدث خطأ أثناء معالجة الصورة.';
+      setScanError(errMsg);
+      showToast(errMsg);
     } finally {
       setLoading(false);
     }
@@ -84,6 +97,7 @@ export function AiImageScannerModal({
 
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (file) processFile(file);
   };
 
@@ -216,9 +230,10 @@ export function AiImageScannerModal({
                   onClick={() => {
                     setPreviewUrl(null);
                     setExtracted(null);
+                    setScanError(null);
                     setMatchedBox(null);
                   }}
-                  className="absolute top-2 right-2 px-2.5 py-1 bg-black/70 hover:bg-black text-white text-xs font-semibold rounded-lg backdrop-blur-xs"
+                  className="absolute top-2 right-2 px-2.5 py-1 bg-black/70 hover:bg-black text-white text-xs font-semibold rounded-lg backdrop-blur-xs cursor-pointer"
                 >
                   فحص صورة أخرى
                 </button>
@@ -337,7 +352,7 @@ export function AiImageScannerModal({
                           >
                             {boxes.map((b) => (
                               <option key={b.id} value={b.id}>
-                                {b.titleAr} - {b.subtitleAr.substring(0, 30)}
+                                {b.titleAr} - {(b.subtitleAr || b.categoryScope || '').substring(0, 30)}
                               </option>
                             ))}
                           </select>
@@ -352,6 +367,24 @@ export function AiImageScannerModal({
                         </div>
                       </div>
                     )}
+                  </div>
+                ) : scanError ? (
+                  <div className="p-4 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-800 dark:text-rose-300 space-y-2">
+                    <div className="flex items-center gap-2 font-bold">
+                      <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>تعذر استخراج بيانات الصورة</span>
+                    </div>
+                    <p className="leading-relaxed">{scanError}</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreviewUrl(null);
+                        setScanError(null);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 cursor-pointer"
+                    >
+                      إعادة المحاولة بصورة أخرى
+                    </button>
                   </div>
                 ) : null}
               </div>

@@ -226,7 +226,8 @@ export function getLocalCachedBoxes(): ArchiveBox[] {
           const needsOneTimeLocalReconcile = !localStorage.getItem(LOCAL_RECONCILE_FLAG);
           let mutated = false;
 
-          const cachedBoxes = parsed.map((b: any, idx: number) => {
+          const boxById = new Map<number, ArchiveBox>();
+          parsed.forEach((b: any, idx: number) => {
             const sanitized = sanitizeArchiveBox(b, idx + 1);
             const updatedAt = typeof b?.updatedAt === 'string' ? b.updatedAt : undefined;
             const reconciled = reconcileBoxWithMaster(
@@ -235,9 +236,18 @@ export function getLocalCachedBoxes(): ArchiveBox[] {
               needsOneTimeLocalReconcile
             );
             if (reconciled.changed) mutated = true;
-            return reconciled.box;
+            const prev = boxById.get(reconciled.box.id);
+            if (!prev) {
+              boxById.set(reconciled.box.id, reconciled.box);
+            } else {
+              mutated = true;
+              if (reconciled.box.files.length > prev.files.length) {
+                boxById.set(reconciled.box.id, reconciled.box);
+              }
+            }
           });
 
+          const cachedBoxes = Array.from(boxById.values());
           const existingIds = new Set(cachedBoxes.map((b) => b.id));
           const missing = ARCHIVE_BOXES.filter((b) => !existingIds.has(b.id));
           if (missing.length > 0) {
@@ -286,6 +296,8 @@ export function subscribeToFirestoreBoxes(
           await seedFirestoreBoxes(ARCHIVE_BOXES);
         } catch (seedErr) {
           console.error('Failed to auto-seed Firestore:', seedErr);
+          if (onError && seedErr instanceof Error) onError(seedErr);
+          onUpdate(getLocalCachedBoxes(), false);
         }
         return;
       }

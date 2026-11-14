@@ -62,33 +62,33 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
             </div>
             <div className="flex items-center gap-4">
               <span className="text-5xl font-black font-mono-num text-slate-900 bg-slate-100 border border-slate-400 px-4 py-1.5 rounded-xl">
-                {String(activeBox.id).padStart(2, '0')}
+                {String(safeActiveBox.id).padStart(2, '0')}
               </span>
               <div>
                 <h1 className="text-2xl font-extrabold font-display text-slate-900">
-                  {activeBox.titleAr} — {activeBox.subtitleAr}
+                  {safeActiveBox.titleAr} — {safeActiveBox.subtitleAr}
                 </h1>
                 <p className="text-xs text-slate-700 mt-1">
-                  الكود: <span className="font-mono-num font-bold">{activeBox.code}</span> · السنة
+                  الكود: <span className="font-mono-num font-bold">{safeActiveBox.code}</span> · السنة
                   المالية:{' '}
                   <span className="font-mono-num font-bold">
-                    {activeBox.years.join(' / ')}
+                    {safeActiveBox.years.join(' / ')}
                   </span>{' '}
                   · إجمالي الملفات:{' '}
                   <span className="font-mono-num font-bold">
-                    {activeBox.files.length} ملف
+                    {safeActiveBox.files.length} ملف
                   </span>
                 </p>
               </div>
             </div>
             <div className="pt-2 max-w-[260px]">
-              <Code128Barcode value={activeBox.barcodeValue} height={38} />
+              <Code128Barcode value={safeActiveBox.barcodeValue} height={38} />
             </div>
           </div>
           <div className="shrink-0 flex flex-col items-center border border-slate-300 rounded-xl p-2.5 bg-white text-center">
             <BoxQrCode value={url} size={115} />
             <span className="text-[11px] font-mono-num font-bold text-slate-800 mt-1">
-              {activeBox.code}
+              {safeActiveBox.code}
             </span>
           </div>
         </div>
@@ -105,7 +105,7 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
             </tr>
           </thead>
           <tbody>
-            {activeBox.files.map((f) => (
+            {safeActiveBox.files.map((f) => (
               <tr key={f.fileNo} className="border-b border-slate-200 print-break-inside-avoid">
                 <td className="border border-slate-300 px-3 py-2 font-mono-num text-center font-semibold">
                   {f.fileNo}
@@ -150,7 +150,7 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
               كشف حصر وتدقيق قائمة الموردين والشركات بالأرشيف الإلكتروني — فندق النيل ريتز كارلتون
             </h1>
             <p className="text-xs text-slate-600">
-              بيان بالموردين المستخرجين من المستندات ومطابقة أماكن تواجدهم الفعلية بالصناديق (1 إلى 13).
+              بيان بالموردين المستخرجين من المستندات ومطابقة أماكن تواجدهم الفعلية بالصناديق المعتمدة ({safeBoxes.length} صندوق).
             </p>
           </div>
           <div className="text-left text-xs font-mono-num space-y-0.5 border-r pr-4 border-slate-200 shrink-0">
@@ -266,7 +266,7 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
               أرشيف فندق النيل ريتز كارلتون · خطة استخراج وتدقيق الموردين لكل صندوق
             </div>
             <h1 className="text-xl font-black text-slate-950 font-display">
-              بيان تفصيلي بمتطلبات واستخراج الموردين المطلوبين من كل صندوق (1 إلى 13)
+              بيان تفصيلي بمتطلبات واستخراج الموردين المطلوبين من كل صندوق ({safeBoxes.length} صندوق)
             </h1>
             <p className="text-xs text-slate-600">
               قائمة تفصيلية توضح لكل صندوق أرقام الظروف والمستندات للموردين المطابقين للقائمة الرئيسية المعتمدة.
@@ -355,7 +355,7 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
 
         {/* Footer sign-off */}
         <div className="pt-6 border-t border-slate-300 flex items-center justify-between text-xs text-slate-600 print-break-inside-avoid">
-          <div>خطة استخراج الموردين من الصناديق (1 إلى 13) · Smart Docs E-Archive</div>
+          <div>خطة استخراج الموردين من الصناديق ({safeBoxes.length} صندوق) · Smart Docs E-Archive</div>
           <div className="flex items-center gap-8">
             <div>توقيع أمين الأرشيف: .........................</div>
             <div>اعتماد الإدارة المالية: .........................</div>
@@ -366,7 +366,7 @@ export const PrintSheet: React.FC<PrintSheetProps> = React.memo(({
   }
 
   // 3. Comprehensive A4 Box Physical Sticker / Index Sheet (Single or All)
-  const targetBoxes = mode === 'single-sticker' ? [activeBox] : boxes;
+  const targetBoxes = mode === 'single-sticker' ? [safeActiveBox] : safeBoxes;
   const isCompact = mode === 'all-stickers-compact';
 
   return (

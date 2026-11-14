@@ -290,7 +290,12 @@ export function App() {
       showToast('تعذر التعرف على الصوت، يرجى المحاولة مرة أخرى.');
     };
 
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (err) {
+      console.warn('Speech recognition start error:', err);
+      showToast('تعذر بدء البحث الصوتي، تأكد من صلاحية الميكروفون.');
+    }
   };
 
   // UI & Print & Modal states
@@ -312,6 +317,13 @@ export function App() {
   const [visibleSuppliersLimit, setVisibleSuppliersLimit] = useState<number>(60);
   const [copiedBoxId, setCopiedBoxId] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    tone?: 'danger' | 'primary';
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
   const [openedViaQrBanner, setOpenedViaQrBanner] = useState<number | null>(null);
   const hasAppliedInitialDeepLink = useRef<boolean>(false);
 
@@ -384,6 +396,7 @@ export function App() {
     const handleGlobalKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (
+          confirmDialog ||
           qrModalBox ||
           isCreateBoxModalOpen ||
           isBatchAddModalOpen ||
@@ -394,6 +407,7 @@ export function App() {
           isAiImageScannerOpen ||
           mobileSidebarOpen
         ) {
+          setConfirmDialog(null);
           setQrModalBox(null);
           setIsCreateBoxModalOpen(false);
           setIsBatchAddModalOpen(false);
@@ -745,40 +759,40 @@ export function App() {
   };
 
   // Delete Single File / Supplier Record
-  const handleDeleteRecord = async (boxId: number, fileNo: number) => {
+  const handleDeleteRecord = async (boxId: number, fileNo: number): Promise<void> => {
     const targetBox = boxes.find((b) => b.id === boxId);
     const targetFile = targetBox?.files.find((f) => f.fileNo === fileNo);
-    if (
-      !window.confirm(
-        `هل أنت متأكد من حذف المورد "${targetFile?.supplierName || 'هذا المورد'}" من ${targetBox?.titleAr || 'الصندوق'}؟`
-      )
-    ) {
-      return;
-    }
-
-    let boxToSave: ArchiveBox | null = null;
-    setBoxes((prev) => {
-      const updated = prev.map((b) => {
-        if (b.id !== boxId) return b;
-        const filtered = b.files.filter((f) => f.fileNo !== fileNo);
-        const nb = {
-          ...b,
-          files: filtered,
-        };
-        boxToSave = nb;
-        return nb;
-      });
-      cacheBoxesLocally(updated);
-      return updated;
+    setConfirmDialog({
+      title: 'تأكيد حذف المورد',
+      message: `هل أنت متأكد من حذف المورد "${targetFile?.supplierName || 'هذا المورد'}" من ${targetBox?.titleAr || 'الصندوق'}؟`,
+      confirmLabel: 'حذف المورد',
+      tone: 'danger',
+      onConfirm: async () => {
+        let boxToSave: ArchiveBox | null = null;
+        setBoxes((prev) => {
+          const updated = prev.map((b) => {
+            if (b.id !== boxId) return b;
+            const filtered = b.files.filter((f) => f.fileNo !== fileNo);
+            const nb = {
+              ...b,
+              files: filtered,
+            };
+            boxToSave = nb;
+            return nb;
+          });
+          cacheBoxesLocally(updated);
+          return updated;
+        });
+        if (boxToSave) {
+          try {
+            await saveBoxToCloud(boxToSave);
+            showToast('تم حذف المورد وتحديث السحابة بنجاح.');
+          } catch (e) {
+            console.error('Failed to sync to cloud:', e);
+          }
+        }
+      },
     });
-    if (boxToSave) {
-      try {
-        await saveBoxToCloud(boxToSave);
-        showToast('تم حذف المورد وتحديث السحابة بنجاح.');
-      } catch (e) {
-        console.error('Failed to sync to cloud:', e);
-      }
-    }
   };
 
   // Toggle audit check (green highlight / found status) on a supplier record
@@ -900,22 +914,24 @@ export function App() {
   };
 
   // Reset to all master default boxes in Cloud Firestore and local
-  const handleResetToDefault = async () => {
-    if (
-      window.confirm(
-        `هل تريد استعادة الصناديق المرجعية الأصلية (${ARCHIVE_BOXES.length} صندوق) في قاعدة البيانات السحابية؟ سيتم تحديث جميع الأجهزة المتصلة والموقع فورياً.`
-      )
-    ) {
-      showToast('جاري استعادة الصناديق الأصلية في السحابة...');
-      try {
-        await resetCloudBoxesToDefault();
-        setSelectedBoxId(1);
-        showToast('تمت استعادة الصناديق الأصلية في السحابة بنجاح.');
-      } catch (err) {
-        console.error('Failed to reset cloud:', err);
-        showToast('حدث خطأ أثناء الاتصال بالسحابة');
-      }
-    }
+  const handleResetToDefault = () => {
+    setConfirmDialog({
+      title: 'استعادة الصناديق المرجعية الأصلية',
+      message: `هل تريد استعادة الصناديق المرجعية الأصلية (${ARCHIVE_BOXES.length} صندوق) في قاعدة البيانات السحابية؟ سيتم تحديث جميع الأجهزة المتصلة والموقع فورياً.`,
+      confirmLabel: 'تأكيد الاستعادة',
+      tone: 'primary',
+      onConfirm: async () => {
+        showToast('جاري استعادة الصناديق الأصلية في السحابة...');
+        try {
+          await resetCloudBoxesToDefault();
+          setSelectedBoxId(1);
+          showToast('تمت استعادة الصناديق الأصلية في السحابة بنجاح.');
+        } catch (err) {
+          console.error('Failed to reset cloud:', err);
+          showToast('حدث خطأ أثناء الاتصال بالسحابة');
+        }
+      },
+    });
   };
 
   // Sync missing master records for the active box to state, localStorage, and Firestore
@@ -5275,6 +5291,63 @@ export function App() {
           />
         )}
       </Suspense>
+
+      {/* In-App Confirmation Dialog (replaces window.confirm for iframe/Android PWA reliability) */}
+      {confirmDialog && (
+        <div
+          className="no-print fixed inset-0 z-[70] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setConfirmDialog(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="bg-white border border-slate-200 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+          >
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-display font-bold text-base text-slate-900">
+                {confirmDialog.title}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(null)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer"
+                aria-label="إغلاق"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 text-sm text-slate-700 leading-relaxed">
+              {confirmDialog.message}
+            </div>
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const action = confirmDialog.onConfirm;
+                  setConfirmDialog(null);
+                  void action();
+                }}
+                className={`px-4 py-2 rounded-xl text-white text-xs font-bold cursor-pointer shadow-xs ${
+                  confirmDialog.tone === 'danger'
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {confirmDialog.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -167,7 +167,7 @@ export function AiSettingsModal({ isOpen, onClose, onSaveToast }: AiSettingsModa
               <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
               <div>
                 <span className="font-bold block mb-0.5">وضع الذكاء الاصطناعي المجاني (Gemini)</span>
-                يستخدم النظام نموذج Google Gemini 3.8 Flash الذكي مع قاعدة مطابقة هجينة محلية فائقة السرعة. لا حاجة لإدخال أي مفتاح.
+                يستخدم النظام نموذج Google Gemini 4 Flash الذكي مع قاعدة مطابقة هجينة محلية فائقة السرعة. لا حاجة لإدخال أي مفتاح.
               </div>
             </div>
           )}
@@ -188,7 +188,7 @@ export function AiSettingsModal({ isOpen, onClose, onSaveToast }: AiSettingsModa
                   ? 'claude-3-5-sonnet-20241022'
                   : config.provider === 'deepseek'
                   ? 'deepseek-chat'
-                  : 'gemini-3.8-flash'
+                  : 'gemini-4-hydrogen'
               }
               className="w-full px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
