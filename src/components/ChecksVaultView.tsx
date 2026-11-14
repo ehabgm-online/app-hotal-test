@@ -1,8 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useDeferredValue, useEffect, startTransition } from 'react';
 import {
   ArchiveBox,
   ArchiveFileRecord,
-  MASTER_USER_SUPPLIERS,
   normalizeArabicSearch,
 } from '../data/archiveData';
 import {
@@ -17,7 +16,6 @@ import {
   Building2,
   CheckCircle2,
   Boxes,
-  Calendar,
   DollarSign,
   Edit3,
   Trash2,
@@ -27,7 +25,7 @@ import {
   ArrowUpDown,
   Check,
 } from 'lucide-react';
-import { Code128Barcode, BoxQrCode } from './BoxCodes';
+import { Code128Barcode } from './BoxCodes';
 import { matchesBilingual, getSupplierBilingualInfo } from '../utils/bilingualSearch';
 
 export interface FlattenedCheckRecord extends ArchiveFileRecord {
@@ -42,6 +40,8 @@ interface ChecksVaultViewProps {
   onAddRecord: (boxId: number, record: ArchiveFileRecord) => Promise<void>;
   onUpdateRecord: (boxId: number, record: ArchiveFileRecord) => Promise<void>;
   onDeleteRecord: (boxId: number, fileNo: number) => Promise<void>;
+  onToggleCheck?: (boxId: number, fileNo: number) => Promise<void>;
+  onEditRecord?: (boxId: number, boxTitle: string, record: ArchiveFileRecord) => void;
   onNavigateToBox: (boxId: number, fileNo?: number) => void;
   onOpenAiScanner?: () => void;
   showToast: (msg: string) => void;
@@ -53,6 +53,8 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
   onAddRecord,
   onUpdateRecord,
   onDeleteRecord,
+  onToggleCheck,
+  onEditRecord,
   onNavigateToBox,
   onOpenAiScanner,
   showToast,
@@ -60,11 +62,28 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
 }) => {
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [typeFilter, setTypeFilter] = useState<'all' | 'checks-only' | 'docs-only' | 'with-amount'>('all');
   const [selectedBoxFilter, setSelectedBoxFilter] = useState<number | 'all'>('all');
   const [activeTab, setActiveTab] = useState<'table' | 'cards' | 'analytics'>('table');
   const [sortField, setSortField] = useState<'supplier' | 'amount' | 'year' | 'box'>('box');
   const [sortAsc, setSortAsc] = useState(true);
+  const [visibleLimit, setVisibleLimit] = useState(60);
+
+  // Dynamic available years & default box
+  const availableYears = useMemo(() => {
+    const set = new Set<number>([2016, 2017, 2019, 2021]);
+    boxes.forEach((b) => (b.years || []).forEach((y) => set.add(y)));
+    return Array.from(set).sort((a, b) => b - a);
+  }, [boxes]);
+
+  const defaultBoxId = useMemo(() => {
+    if (yearFilter !== 'all') {
+      const match = boxes.find((b) => (b.years || []).includes(yearFilter));
+      if (match) return match.id;
+    }
+    return boxes[boxes.length - 1]?.id || 1;
+  }, [boxes, yearFilter]);
 
   // Modal States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -72,12 +91,45 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
   const [newDocNo, setNewDocNo] = useState('');
   const [newCheckNo, setNewCheckNo] = useState('');
   const [newAmount, setNewAmount] = useState<string>('');
-  const [newYear, setNewYear] = useState<number>(2017);
+  const [newYear, setNewYear] = useState<number>(yearFilter !== 'all' ? yearFilter : availableYears[0] || 2017);
   const [newNotes, setNewNotes] = useState('');
-  const [targetBoxId, setTargetBoxId] = useState<number>(16);
+  const [targetBoxId, setTargetBoxId] = useState<number>(defaultBoxId);
 
   // Printable Voucher Modal
   const [voucherRecord, setVoucherRecord] = useState<FlattenedCheckRecord | null>(null);
+
+  // Reset box filter & pagination seamlessly when boxes/yearFilter changes
+  useEffect(() => {
+    if (selectedBoxFilter !== 'all') {
+      const stillValid = boxes.some(
+        (b) => b.id === selectedBoxFilter && (yearFilter === 'all' || (b.years || []).includes(yearFilter))
+      );
+      if (!stillValid) setSelectedBoxFilter('all');
+    }
+  }, [boxes, yearFilter, selectedBoxFilter]);
+
+  useEffect(() => {
+    if (!boxes.some((b) => b.id === targetBoxId)) {
+      setTargetBoxId(defaultBoxId);
+    }
+  }, [boxes, targetBoxId, defaultBoxId]);
+
+  useEffect(() => {
+    setVisibleLimit(60);
+  }, [deferredSearchQuery, typeFilter, selectedBoxFilter, yearFilter, activeTab]);
+
+  // Close internal modals cleanly with Escape
+  useEffect(() => {
+    if (!isAddModalOpen && !voucherRecord) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsAddModalOpen(false);
+        setVoucherRecord(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isAddModalOpen, voucherRecord]);
 
   // Flatten all records from all boxes
   const allRecords = useMemo<FlattenedCheckRecord[]>(() => {
@@ -98,7 +150,7 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
     return list;
   }, [boxes, yearFilter]);
 
-  // Filtered Records
+  // Filtered Records (uses deferred query for zero typing lag)
   const filteredRecords = useMemo(() => {
     let result = allRecords;
 
@@ -114,7 +166,7 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
       result = result.filter((r) => typeof r.amountEgp === 'number' && r.amountEgp > 0);
     }
 
-    const q = searchQuery.trim().toLowerCase();
+    const q = deferredSearchQuery.trim().toLowerCase();
     if (q) {
       result = result.filter((r) => {
         return (
@@ -128,8 +180,9 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
       });
     }
 
-    // Sort
-    result.sort((a, b) => {
+    // Sort copy without mutating memo source
+    const sorted = [...result];
+    sorted.sort((a, b) => {
       let cmp = 0;
       if (sortField === 'supplier') {
         cmp = a.supplierName.localeCompare(b.supplierName);
@@ -143,8 +196,13 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
       return sortAsc ? cmp : -cmp;
     });
 
-    return result;
-  }, [allRecords, selectedBoxFilter, typeFilter, searchQuery, sortField, sortAsc]);
+    return sorted;
+  }, [allRecords, selectedBoxFilter, typeFilter, deferredSearchQuery, sortField, sortAsc]);
+
+  const visibleRecords = useMemo(
+    () => filteredRecords.slice(0, visibleLimit),
+    [filteredRecords, visibleLimit]
+  );
 
   // KPI Metrics
   const metrics = useMemo(() => {
@@ -201,7 +259,9 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
       checkNo: newCheckNo.trim() || '—',
       year: newYear,
       notes: newNotes.trim() || (parsedAmount ? `القيمة: ${parsedAmount.toLocaleString('ar-EG')} ج.م` : ''),
-      amountEgp: parsedAmount,
+      ...(typeof parsedAmount === 'number' && Number.isFinite(parsedAmount)
+        ? { amountEgp: parsedAmount }
+        : {}),
     };
 
     try {
@@ -313,10 +373,16 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
         </div>
       </div>
 
-      {/* KPI Cards Strip */}
+      {/* KPI Cards Strip (Interactive Quick Filters) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Total Documents */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <button
+          type="button"
+          onClick={() => startTransition(() => { setTypeFilter('all'); setActiveTab('table'); })}
+          className={`text-right bg-white border rounded-2xl p-4 sm:p-5 shadow-xs transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+            typeFilter === 'all' ? 'border-slate-400 ring-2 ring-slate-200' : 'border-slate-200 hover:border-slate-300'
+          }`}
+        >
           <div className="text-xs font-semibold text-slate-500 flex items-center justify-between">
             <span>إجمالي قيود الأرشيف</span>
             <Layers className="w-4 h-4 text-slate-400" />
@@ -327,10 +393,16 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
           <div className="mt-1 text-[11px] text-slate-400">
             شيكات ومستندات وفواتير مسجلة
           </div>
-        </div>
+        </button>
 
         {/* Total Checks */}
-        <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <button
+          type="button"
+          onClick={() => startTransition(() => { setTypeFilter('checks-only'); setActiveTab('table'); })}
+          className={`text-right bg-blue-50/70 border rounded-2xl p-4 sm:p-5 shadow-xs transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+            typeFilter === 'checks-only' ? 'border-blue-500 ring-2 ring-blue-200' : 'border-blue-200 hover:border-blue-400'
+          }`}
+        >
           <div className="text-xs font-bold text-blue-800 flex items-center justify-between">
             <span>الشيكات البنكية الموثقة</span>
             <CreditCard className="w-4 h-4 text-blue-600" />
@@ -339,12 +411,18 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
             {metrics.checksCount}
           </div>
           <div className="mt-1 text-[11px] text-blue-700 font-medium">
-            شيك بنكي برقم صريح أو سند صرف
+            اضغط لتصفية الشيكات البنكية فقط
           </div>
-        </div>
+        </button>
 
         {/* Total Invoices */}
-        <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <button
+          type="button"
+          onClick={() => startTransition(() => { setTypeFilter('docs-only'); setActiveTab('table'); })}
+          className={`text-right bg-emerald-50/70 border rounded-2xl p-4 sm:p-5 shadow-xs transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+            typeFilter === 'docs-only' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-emerald-200 hover:border-emerald-400'
+          }`}
+        >
           <div className="text-xs font-bold text-emerald-800 flex items-center justify-between">
             <span>الفواتير والمستندات بالأكواد</span>
             <FileText className="w-4 h-4 text-emerald-600" />
@@ -353,12 +431,18 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
             {metrics.docsCount}
           </div>
           <div className="mt-1 text-[11px] text-emerald-700 font-medium">
-            فاتورة ومستند بكود مورد رسمي
+            اضغط لتصفية المستندات بالأكواد
           </div>
-        </div>
+        </button>
 
         {/* Active Suppliers */}
-        <div className="bg-purple-50/70 border border-purple-200 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <button
+          type="button"
+          onClick={() => startTransition(() => setActiveTab('analytics'))}
+          className={`text-right bg-purple-50/70 border rounded-2xl p-4 sm:p-5 shadow-xs transition-all duration-150 active:scale-[0.98] cursor-pointer ${
+            activeTab === 'analytics' ? 'border-purple-500 ring-2 ring-purple-200' : 'border-purple-200 hover:border-purple-400'
+          }`}
+        >
           <div className="text-xs font-bold text-purple-800 flex items-center justify-between">
             <span>الموردون والشركات</span>
             <Building2 className="w-4 h-4 text-purple-600" />
@@ -367,9 +451,9 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
             {metrics.uniqueSuppliers}
           </div>
           <div className="mt-1 text-[11px] text-purple-700 font-medium">
-            شركة ومورد معتمد في الأرشيف
+            اضغط لعرض التحليل الذكي
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Filter and Search Bar */}
@@ -400,8 +484,8 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
           <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start md:self-auto shrink-0">
             <button
               type="button"
-              onClick={() => setActiveTab('table')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              onClick={() => startTransition(() => setActiveTab('table'))}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] ${
                 activeTab === 'table' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -409,8 +493,8 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('cards')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              onClick={() => startTransition(() => setActiveTab('cards'))}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] ${
                 activeTab === 'cards' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -418,8 +502,8 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('analytics')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              onClick={() => startTransition(() => setActiveTab('analytics'))}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer active:scale-[0.98] flex items-center gap-1 ${
                 activeTab === 'analytics' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -429,7 +513,7 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
           </div>
         </div>
 
-        {/* Filter Pills */}
+        {/* Filter Buttons */}
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
           <div className="text-xs font-bold text-slate-500 flex items-center gap-1.5 ml-1">
             <Filter className="w-3.5 h-3.5" />
@@ -438,8 +522,8 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setTypeFilter('all')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            onClick={() => startTransition(() => setTypeFilter('all'))}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-[0.98] ${
               typeFilter === 'all' ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
@@ -448,8 +532,8 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setTypeFilter('checks-only')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+            onClick={() => startTransition(() => setTypeFilter('checks-only'))}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-[0.98] flex items-center gap-1 ${
               typeFilter === 'checks-only' ? 'bg-blue-600 text-white shadow-xs' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
             }`}
           >
@@ -459,8 +543,8 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setTypeFilter('docs-only')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+            onClick={() => startTransition(() => setTypeFilter('docs-only'))}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-[0.98] flex items-center gap-1 ${
               typeFilter === 'docs-only' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
             }`}
           >
@@ -470,8 +554,8 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setTypeFilter('with-amount')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+            onClick={() => startTransition(() => setTypeFilter('with-amount'))}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer active:scale-[0.98] flex items-center gap-1 ${
               typeFilter === 'with-amount' ? 'bg-purple-600 text-white shadow-xs' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
             }`}
           >
@@ -486,15 +570,21 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
             <span className="text-xs font-semibold text-slate-500">الصندوق:</span>
             <select
               value={selectedBoxFilter}
-              onChange={(e) => setSelectedBoxFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              className="bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:border-blue-500"
+              onChange={(e) =>
+                startTransition(() =>
+                  setSelectedBoxFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
+                )
+              }
+              className="bg-slate-100 border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-800 focus:outline-none focus:border-blue-500 cursor-pointer"
             >
               <option value="all">كافة الصناديق</option>
-              {boxes.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.titleAr} ({b.files.length} ملف)
-                </option>
-              ))}
+              {boxes
+                .filter((b) => yearFilter === 'all' || (b.years || []).includes(yearFilter))
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.titleAr} ({b.files.length} ملف)
+                  </option>
+                ))}
             </select>
           </div>
         </div>
@@ -568,10 +658,15 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredRecords.map((r, idx) => {
+                  visibleRecords.map((r, idx) => {
                     const bi = getSupplierBilingualInfo(r.supplierName);
                     return (
-                      <tr key={`${r.boxId}-${r.fileNo}-${idx}`} className="hover:bg-blue-50/40 transition-colors">
+                      <tr
+                        key={`${r.boxId}-${r.fileNo}-${idx}`}
+                        className={`transition-colors ${
+                          r.isChecked ? 'bg-emerald-50/60 hover:bg-emerald-100/50' : 'hover:bg-blue-50/40'
+                        }`}
+                      >
                         <td className="px-4 py-3 font-mono-num text-center text-slate-400 font-semibold">
                           {idx + 1}
                         </td>
@@ -632,11 +727,37 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => onNavigateToBox(r.boxId, r.fileNo)}
-                              className="p-1 rounded-md text-slate-400 hover:text-blue-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                              title="عرض في الصندوق"
+                              onClick={() =>
+                                onToggleCheck
+                                  ? onToggleCheck(r.boxId, r.fileNo)
+                                  : onUpdateRecord(r.boxId, { ...r, isChecked: !r.isChecked })
+                              }
+                              className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                                r.isChecked
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'text-slate-400 hover:text-emerald-700 hover:bg-emerald-50'
+                              }`}
+                              title={r.isChecked ? 'إلغاء التعليم' : 'تعليم كمطابق ✓'}
                             >
-                              <Boxes className="w-4 h-4" />
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            {onEditRecord && (
+                              <button
+                                type="button"
+                                onClick={() => onEditRecord(r.boxId, r.boxTitle, r)}
+                                className="p-1.5 rounded-md text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                                title="تعديل السجل"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onDeleteRecord(r.boxId, r.fileNo)}
+                              className="p-1.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="حذف السجل"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -647,87 +768,133 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
               </tbody>
             </table>
           </div>
+          {filteredRecords.length > visibleLimit && (
+            <div className="p-3 border-t border-slate-100 bg-slate-50/70 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => setVisibleLimit((prev) => prev + 60)}
+                className="px-5 py-2 rounded-xl bg-white hover:bg-blue-50 text-slate-800 hover:text-blue-700 border border-slate-300 text-xs font-bold cursor-pointer transition-colors"
+              >
+                عرض المزيد ({Math.min(60, filteredRecords.length - visibleLimit)} سجل إضافي من أصل {filteredRecords.length})
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {/* Check Cards & Vouchers View */}
       {activeTab === 'cards' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredRecords.map((r, idx) => (
-            <div
-              key={`${r.boxId}-${r.fileNo}-${idx}`}
-              className="bg-white border-2 border-slate-200 hover:border-blue-400 rounded-2xl p-5 shadow-xs transition-all flex flex-col justify-between space-y-4 relative overflow-hidden group"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1 min-w-0">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    فندق النيل ريتز كارلتون · شيك ومستند مورد
-                  </div>
-                  <h3 className="font-extrabold text-base text-slate-900 truncate" title={r.supplierName}>
-                    {r.supplierName}
-                  </h3>
-                  <div className="flex items-center gap-2 flex-wrap text-xs">
-                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono-num font-bold">
-                      {r.docNo !== '—' ? r.docNo : 'بدون كود'}
-                    </span>
-                    <span className="text-slate-500 font-mono-num font-semibold">سنة {r.year}</span>
-                  </div>
-                </div>
-
-                <div className="shrink-0 text-left">
-                  <span className="px-2.5 py-1 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-xs font-mono-num font-black block">
-                    {r.boxCode}
-                  </span>
-                </div>
-              </div>
-
-              {/* Check and Amount Strip */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">رقم الشيك البنكي:</span>
-                  <span className="font-mono-num font-black text-blue-700 text-sm">
-                    {r.checkNo !== '—' ? r.checkNo : '—'}
-                  </span>
-                </div>
-                {r.amountEgp && (
-                  <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200">
-                    <span className="text-slate-500">القيمة المعتمدة:</span>
-                    <span className="font-mono-num font-black text-emerald-700 text-sm">
-                      {r.amountEgp.toLocaleString('ar-EG')} ج.م
-                    </span>
-                  </div>
-                )}
-                {r.notes && (
-                  <div className="text-[11px] text-slate-600 line-clamp-2 pt-1 border-t border-slate-200">
-                    {r.notes}
-                  </div>
-                )}
-              </div>
-
-              {/* Barcode visual preview */}
-              <div className="pt-1">
-                <Code128Barcode value={r.docNo !== '—' ? r.docNo : r.boxCode} height={28} showLabel={false} />
-              </div>
-
-              {/* Card Footer Actions */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => setVoucherRecord(r)}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors cursor-pointer"
-                >
-                  طباعة السند
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNavigateToBox(r.boxId, r.fileNo)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
-                >
-                  الانتقال للصندوق
-                </button>
-              </div>
+        <div className="space-y-4">
+          {filteredRecords.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400 text-sm">
+              لا توجد شيكات أو مستندات مطابقة للبحث الحالي.
             </div>
-          ))}
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {visibleRecords.map((r, idx) => (
+                <div
+                  key={`${r.boxId}-${r.fileNo}-${idx}`}
+                  className={`bg-white border-2 rounded-2xl p-5 shadow-xs transition-all flex flex-col justify-between space-y-4 relative overflow-hidden group ${
+                    r.isChecked
+                      ? 'border-emerald-400 bg-emerald-50/30'
+                      : 'border-slate-200 hover:border-blue-400'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1 min-w-0">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        فندق النيل ريتز كارلتون · شيك ومستند مورد
+                      </div>
+                      <h3 className="font-extrabold text-base text-slate-900 truncate" title={r.supplierName}>
+                        {r.supplierName}
+                      </h3>
+                      <div className="flex items-center gap-2 flex-wrap text-xs">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono-num font-bold">
+                          {r.docNo !== '—' ? r.docNo : 'بدون كود'}
+                        </span>
+                        <span className="text-slate-500 font-mono-num font-semibold">سنة {r.year}</span>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-left">
+                      <span className="px-2.5 py-1 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-xs font-mono-num font-black block">
+                        {r.boxCode}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Check and Amount Strip */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">رقم الشيك البنكي:</span>
+                      <span className="font-mono-num font-black text-blue-700 text-sm">
+                        {r.checkNo !== '—' ? r.checkNo : '—'}
+                      </span>
+                    </div>
+                    {r.amountEgp && (
+                      <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200">
+                        <span className="text-slate-500">القيمة المعتمدة:</span>
+                        <span className="font-mono-num font-black text-emerald-700 text-sm">
+                          {r.amountEgp.toLocaleString('ar-EG')} ج.م
+                        </span>
+                      </div>
+                    )}
+                    {r.notes && (
+                      <div className="text-[11px] text-slate-600 line-clamp-2 pt-1 border-t border-slate-200">
+                        {r.notes}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Barcode visual preview */}
+                  <div className="pt-1">
+                    <Code128Barcode value={r.docNo !== '—' ? r.docNo : r.boxCode} height={28} showLabel={false} />
+                  </div>
+
+                  {/* Card Footer Actions */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setVoucherRecord(r)}
+                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        طباعة السند
+                      </button>
+                      {onEditRecord && (
+                        <button
+                          type="button"
+                          onClick={() => onEditRecord(r.boxId, r.boxTitle, r)}
+                          className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 transition-colors cursor-pointer"
+                          title="تعديل"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateToBox(r.boxId, r.fileNo)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      الانتقال للصندوق
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {filteredRecords.length > visibleLimit && (
+            <div className="flex items-center justify-center pt-1">
+              <button
+                type="button"
+                onClick={() => setVisibleLimit((prev) => prev + 60)}
+                className="px-5 py-2.5 rounded-xl bg-white hover:bg-blue-50 text-slate-800 hover:text-blue-700 border border-slate-300 text-xs font-bold cursor-pointer transition-colors"
+              >
+                عرض المزيد ({Math.min(60, filteredRecords.length - visibleLimit)} بطاقة إضافية من أصل {filteredRecords.length})
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -766,7 +933,7 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
                 <span>تغطية الموردين</span>
               </h4>
               <p className="text-xs text-slate-600 leading-relaxed">
-                تمت فهرسة <strong>{metrics.uniqueSuppliers}</strong> مورد مختلف عبر صناديق السنوات (2016، 2017، 2019، 2021)، وأحدث الصناديق المضافة: <strong>صندوق 16</strong> بعدد 25 مورد.
+                تمت فهرسة <strong>{metrics.uniqueSuppliers}</strong> مورد مختلف عبر صناديق السنوات ({availableYears.slice().sort((a, b) => a - b).join('، ')})، وأحدث صندوق مضاف: <strong>{boxes[boxes.length - 1]?.titleAr || 'صندوق 1'}</strong> بعدد {boxes[boxes.length - 1]?.files.length || 0} ملف.
               </p>
             </div>
 
@@ -863,10 +1030,11 @@ export const ChecksVaultView: React.FC<ChecksVaultViewProps> = ({
                     onChange={(e) => setNewYear(Number(e.target.value))}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-bold focus:outline-none focus:border-blue-500"
                   >
-                    <option value={2017}>2017</option>
-                    <option value={2016}>2016</option>
-                    <option value={2019}>2019</option>
-                    <option value={2021}>2021</option>
+                    {availableYears.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

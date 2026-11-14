@@ -64,35 +64,43 @@ export function AiSettingsModal({ isOpen, onClose, onSaveToast }: AiSettingsModa
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl overflow-hidden animate-in fade-in zoom-in duration-200">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-xl max-h-[92dvh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200"
+      >
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md">
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-4 sm:p-5 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md shrink-0">
               <Sparkles className="w-5 h-5 text-amber-300 animate-pulse" />
             </div>
-            <div>
-              <h3 className="text-lg font-bold">إعدادات الذكاء الاصطناعي ونماذج البحث الذكية</h3>
-              <p className="text-xs text-emerald-100">اختر محرك الذكاء الاصطناعي (مجاني أو مفتاح API خاص)</p>
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-bold truncate">إعدادات الذكاء الاصطناعي ونماذج البحث</h3>
+              <p className="text-xs text-emerald-100 truncate">اختر محرك الذكاء الاصطناعي (مجاني أو مفتاح API خاص)</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+            className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+            aria-label="إغلاق"
           >
             <X className="w-5 h-5 text-white" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSave} className="p-6 space-y-5">
+        <form onSubmit={handleSave} className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
           {/* Provider Selection */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
               اختر مزود الذكاء الاصطناعي (AI Provider)
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
                 { id: 'gemini', name: 'Google Gemini (مجاني / افتراضي)', desc: 'مدمج في النظام بدون مفتاح' },
                 { id: 'openai', name: 'OpenAI ChatGPT', desc: 'GPT-4o / GPT-4o-mini' },

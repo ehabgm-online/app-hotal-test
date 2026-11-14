@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Printer, Copy, Check, Download, ExternalLink } from 'lucide-react';
+import { X, Printer, Copy, Check, Download, ExternalLink, Share2 } from 'lucide-react';
 import { ArchiveBox } from '../data/archiveData';
 import { BoxQrCode, Code128Barcode } from './BoxCodes';
 
@@ -35,6 +35,22 @@ export const QrModal: React.FC<QrModalProps> = ({
     }
   };
 
+  const handleNativeShare = async () => {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: `${box.titleAr} — أرشيف فندق النيل ريتز كارلتون`,
+          text: `محتويات ${box.titleAr} (${box.code}) · ${box.files.length} ملف`,
+          url: boxUrl,
+        });
+        return;
+      } catch {
+        // User cancelled or fallback to copy
+      }
+    }
+    await handleCopy();
+  };
+
   const handleDownloadPng = () => {
     if (!qrDataUrl) return;
     const a = document.createElement('a');
@@ -47,39 +63,39 @@ export const QrModal: React.FC<QrModalProps> = ({
 
   return (
     <div
-      className="no-print fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4"
+      className="no-print fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-2 sm:p-4 overflow-y-auto"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`رمز الاستجابة السريعة والباركود - ${box.titleAr}`}
     >
       <div
-        className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden"
+        className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg max-h-[92dvh] flex flex-col shadow-xl overflow-hidden my-auto"
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
       >
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70">
-          <div>
-            <h3 className="font-display font-bold text-lg text-slate-900">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/70 shrink-0">
+          <div className="min-w-0">
+            <h3 className="font-display font-bold text-base sm:text-lg text-slate-900 truncate">
               ملصق التعريف الذكي — {box.titleAr}
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 mt-0.5 truncate">
               {box.code} · السنة المالية {box.years.join(' / ')} · {box.files.length} ملف مؤرشف
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-9 h-9 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-200/60 hover:text-slate-900 transition-colors cursor-pointer"
+            className="w-10 h-10 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-200/60 hover:text-slate-900 transition-colors cursor-pointer shrink-0"
             aria-label="إغلاق"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-6 space-y-5">
+        <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
           {/* Sticker Preview Surface */}
-          <div className="border-[3px] border-slate-900 rounded-xl p-5 bg-white space-y-4">
+          <div className="border-[3px] border-slate-900 rounded-xl p-4 sm:p-5 bg-white space-y-4">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
               {/* Massive High-Visibility Box Number Badge */}
               <div className="bg-slate-900 text-white rounded-xl p-3 flex flex-col items-center justify-center shrink-0 min-w-[110px] text-center shadow-sm">
@@ -127,9 +143,9 @@ export const QrModal: React.FC<QrModalProps> = ({
             <label className="block text-xs font-medium text-slate-600">
               الرابط المباشر لمحتويات الصندوق (عند مسح رمز QR):
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
               <div
-                className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono-num text-slate-700 truncate"
+                className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 text-xs font-mono-num text-slate-700 truncate"
                 dir="ltr"
               >
                 {boxUrl}
@@ -137,7 +153,7 @@ export const QrModal: React.FC<QrModalProps> = ({
               <button
                 type="button"
                 onClick={handleCopy}
-                className="px-3.5 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-medium text-slate-800 flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                className="px-3.5 py-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-medium text-slate-800 flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
               >
                 {copied ? (
                   <>
@@ -151,15 +167,24 @@ export const QrModal: React.FC<QrModalProps> = ({
                   </>
                 )}
               </button>
+              <button
+                type="button"
+                onClick={handleNativeShare}
+                className="px-3.5 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                title="مشاركة عبر تطبيقات الهاتف (واتساب، تيليجرام...)"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>مشاركة</span>
+              </button>
             </div>
           </div>
 
           {/* Action Controls */}
-          <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
             <button
               type="button"
               onClick={() => onPrintSingle(box.id)}
-              className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer transition-colors"
+              className="py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer transition-colors"
             >
               <Printer className="w-4 h-4" />
               <span>طباعة ملصق الصندوق</span>

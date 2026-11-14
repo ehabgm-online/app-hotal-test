@@ -615,7 +615,7 @@ export const ARCHIVE_BOXES: ArchiveBox[] = [
       { fileNo: 4, envelopeLabel: 'الظرف 4', supplierName: 'Ahmed Saeed Mohamed Hafez', docNo: 'CAH015', checkNo: '2017', year: 2017, notes: 'كود المورد: CAH015 · أحمد سعيد محمد حافظ · صورة ١' },
       { fileNo: 5, envelopeLabel: 'الظرف 5', supplierName: 'Sahar Mouries Adieb Younan', docNo: 'CSA011', checkNo: '2017', year: 2017, notes: 'كود المورد: CSA011 · سحر موريس أديب يونان · صورة ١' },
       { fileNo: 6, envelopeLabel: 'الظرف 6', supplierName: 'QUANTA IMPORT & TRADE', docNo: 'CQU002', checkNo: '2017', year: 2017, notes: 'كود المورد: CQU002 · كوانتا للاستيراد والتجارة · صورة ١' },
-      { fileNo: 7, envelopeLabel: 'الظرف 7', supplierName: 'NESTLE WATERS (الجبيليين)', docNo: 'CNE005', checkNo: '2017', year: 2017, notes: 'كود المورد: CNE005 · نستله وترز (الجبيليين) · صورة ١' },
+      { fileNo: 7, envelopeLabel: 'الظرف 7', supplierName: 'NESTLE WATERS (الجبيلين)', docNo: 'CNE005', checkNo: '2017', year: 2017, notes: 'كود المورد: CNE005 · نستله وترز (الجبيلين) · صورة ١' },
       { fileNo: 8, envelopeLabel: 'الظرف 8', supplierName: 'NALCO EGYPT LTD.', docNo: 'CNA001', checkNo: '2017', year: 2017, notes: 'كود المورد: CNA001 · نالكو مصر المحدودة · صورة ١' },
       { fileNo: 9, envelopeLabel: 'الظرف 9', supplierName: 'Mamiba Egypt Cosmetics', docNo: 'CMA006', checkNo: '2017', year: 2017, notes: 'كود المورد: CMA006 · مامبيا مصر لمستحضرات التجميل · صورة ١ - عمومي' },
       { fileNo: 10, envelopeLabel: 'الظرف 10', supplierName: 'European paradise Import & Export', docNo: 'CEU001', checkNo: '2017', year: 2017, notes: 'كود المورد: CEU001 · يوروبيان بارادايس للاستيراد والتصدير · صورة ٢ - Foods' },

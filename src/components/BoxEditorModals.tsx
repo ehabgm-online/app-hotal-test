@@ -220,7 +220,7 @@ export const CreateBoxModal: React.FC<CreateBoxModalProps> = ({
       aria-modal="true"
     >
       <div
-        className="bg-white border border-slate-200 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col"
+        className="bg-white border border-slate-200 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden my-auto max-h-[92dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
       >
@@ -499,7 +499,7 @@ export const BatchAddSuppliersModal: React.FC<BatchAddSuppliersModalProps> = ({
       aria-modal="true"
     >
       <div
-        className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col"
+        className="bg-white border border-slate-200 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden my-auto max-h-[92dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
       >
@@ -700,7 +700,7 @@ export const EditBoxModal: React.FC<EditBoxModalProps> = ({
       aria-modal="true"
     >
       <div
-        className="bg-white border border-slate-200 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col"
+        className="bg-white border border-slate-200 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden my-auto max-h-[92dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
       >
@@ -901,6 +901,7 @@ export const EditFileRecordModal: React.FC<EditFileRecordModalProps> = ({
     if (!supplierName.trim()) return;
 
     const updated: ArchiveFileRecord = {
+      ...record,
       fileNo: Number(fileNo) || record.fileNo,
       envelopeLabel: envelopeLabel.trim() || `الظرف ${fileNo}`,
       supplierName: supplierName.trim(),
@@ -922,7 +923,7 @@ export const EditFileRecordModal: React.FC<EditFileRecordModalProps> = ({
       aria-modal="true"
     >
       <div
-        className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col"
+        className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden my-auto max-h-[92dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
       >
@@ -1127,7 +1128,7 @@ export const AddSingleSupplierModal: React.FC<AddSingleSupplierModalProps> = ({
       aria-modal="true"
     >
       <div
-        className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col"
+        className="bg-white border border-slate-200 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden my-auto max-h-[92dvh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         dir="rtl"
       >

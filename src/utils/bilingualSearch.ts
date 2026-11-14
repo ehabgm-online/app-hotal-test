@@ -4,21 +4,36 @@
  * and displaying dual-language names for maximum archive clarity.
  */
 
+const MAX_CACHE_SIZE = 8000;
+const MAX_MATCH_CACHE_SIZE = 20000;
+
+function setBoundedCache<K, V>(cache: Map<K, V>, key: K, value: V, limit = MAX_CACHE_SIZE): V {
+  if (cache.size >= limit) {
+    cache.clear();
+  }
+  cache.set(key, value);
+  return value;
+}
+
 // Arabic-Indic digits to Western digits converter
 export function normalizeDigits(str: string): string {
   if (!str) return '';
   const arabicIndic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
   let res = str;
   for (let i = 0; i < 10; i++) {
-    res = res.replaceAll(arabicIndic[i], String(i));
+    if (res.includes(arabicIndic[i])) {
+      res = res.replaceAll(arabicIndic[i], String(i));
+    }
   }
   return res;
 }
 
-// Normalized Arabic character cleaner
+// Normalized Arabic character cleaner with memoization cache
+const cleanArabicCache = new Map<string, string>();
 export function cleanArabic(str: string): string {
   if (!str) return '';
-  return normalizeDigits(str)
+  if (cleanArabicCache.has(str)) return cleanArabicCache.get(str)!;
+  const res = normalizeDigits(str)
     .toLowerCase()
     .replace(/[أإآٱ]/g, 'ا')
     .replace(/ة/g, 'ه')
@@ -28,16 +43,24 @@ export function cleanArabic(str: string): string {
     .replace(/[^a-z0-9\u0600-\u06FF\s]/g, ' ') // replace special chars with spaces
     .replace(/\s+/g, ' ')
     .trim();
+  if (cleanArabicCache.size > 8000) cleanArabicCache.clear();
+  cleanArabicCache.set(str, res);
+  return res;
 }
 
-// Clean English string
+// Clean English string with memoization cache
+const cleanEnglishCache = new Map<string, string>();
 export function cleanEnglish(str: string): string {
   if (!str) return '';
-  return normalizeDigits(str)
+  if (cleanEnglishCache.has(str)) return cleanEnglishCache.get(str)!;
+  const res = normalizeDigits(str)
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+  if (cleanEnglishCache.size > 8000) cleanEnglishCache.clear();
+  cleanEnglishCache.set(str, res);
+  return res;
 }
 
 // Remove Arabic "ال" prefix for fuzzy match (e.g. "الدومتي" -> "دومتي")
@@ -94,16 +117,24 @@ const ARABIC_ORDINAL_MAP: Record<string, number> = {
  *  - "الصورة الأولى" -> { ar: "الظرف 1", en: "Image 1", combined: "الظرف 1 · Image 1", number: 1 }
  *  - "الظرف 12" -> { ar: "الظرف 12", en: "File 12", combined: "الظرف 12 · File 12", number: 12 }
  */
-export function getBilingualFileLabel(
-  envelopeLabel: string,
-  fallbackFileNo?: number
-): {
+type BilingualFileLabelResult = {
   ar: string;
   en: string;
   combined: string;
   number?: number;
   searchVariants: string[];
-} {
+};
+
+const fileLabelCache = new Map<string, BilingualFileLabelResult>();
+
+export function getBilingualFileLabel(
+  envelopeLabel: string,
+  fallbackFileNo?: number
+): BilingualFileLabelResult {
+  const cacheKey = `${envelopeLabel || ''}\u0000${fallbackFileNo ?? ''}`;
+  const cached = fileLabelCache.get(cacheKey);
+  if (cached) return cached;
+
   const raw = envelopeLabel || '';
   const clean = cleanArabic(raw);
   const normalizedDigitsStr = normalizeDigits(raw);
@@ -177,13 +208,13 @@ export function getBilingualFileLabel(
     variants.add(`env ${num}`);
   }
 
-  return {
+  return setBoundedCache(fileLabelCache, cacheKey, {
     ar: arLabel,
     en: enLabel,
     combined,
     number: num,
     searchVariants: Array.from(variants),
-  };
+  });
 }
 
 // Known company aliases and translation dictionary (Covering Egyptian archive & hotel suppliers)
@@ -499,17 +530,23 @@ export function canonicalBusinessToken(tok: string): string {
   return t;
 }
 
+const canonicalTokensCache = new Map<string, string[]>();
+const subsetTokensCache = new Map<string, string[]>();
+
 export function extractCanonicalTokens(str: string): string[] {
   if (!str) return [];
+  const cached = canonicalTokensCache.get(str);
+  if (cached) return cached;
+
   let s = str
     .replace(/foodbrand/gi, 'food brand')
     .replace(/foodindust/gi, 'food indust')
     .replace(/impexp/gi, 'imp exp')
     .replace(/&/g, ' and ');
-  
+
   s = s.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, ' ');
   const rawTokens = s.split(/\s+/).map((t) => t.trim().toLowerCase()).filter(Boolean);
-  return rawTokens.map(canonicalBusinessToken);
+  return setBoundedCache(canonicalTokensCache, str, rawTokens.map(canonicalBusinessToken));
 }
 
 export const KNOWN_EQUIVALENCE_CLUSTERS: string[][] = [
@@ -555,50 +592,100 @@ export const KNOWN_EQUIVALENCE_CLUSTERS: string[][] = [
   ['the arabic house for supp', 'the arabic house', 'البيت العربي'],
 ];
 
+const PRECOMPUTED_CLUSTERS: string[][] = KNOWN_EQUIVALENCE_CLUSTERS.map((cluster) =>
+  cluster.map((item) => item.toLowerCase())
+);
+
+interface PrecomputedDictEntry {
+  keyClean: string;
+  keyArClean: string;
+  dictEnClean: string;
+  dictArClean: string;
+  ar: string;
+  en: string;
+}
+
+const PRECOMPUTED_DICTIONARY: PrecomputedDictEntry[] = Object.entries(BILINGUAL_DICTIONARY).map(
+  ([key, val]) => ({
+    keyClean: cleanEnglish(key),
+    keyArClean: cleanArabic(key),
+    dictEnClean: cleanEnglish(val.en),
+    dictArClean: cleanArabic(val.ar),
+    ar: val.ar,
+    en: val.en,
+  })
+);
+
 export function checkClusterMatch(targetText: string, searchQuery: string): boolean {
   if (!targetText || !searchQuery) return false;
   const normT = targetText.toLowerCase();
   const normQ = searchQuery.toLowerCase();
-  for (const cluster of KNOWN_EQUIVALENCE_CLUSTERS) {
-    const tMatches = cluster.some((item) => normT.includes(item));
-    const qMatches = cluster.some((item) => normQ.includes(item));
-    if (tMatches && qMatches) {
-      return true;
+  for (let i = 0; i < PRECOMPUTED_CLUSTERS.length; i++) {
+    const cluster = PRECOMPUTED_CLUSTERS[i];
+    let tMatches = false;
+    let qMatches = false;
+    for (let j = 0; j < cluster.length; j++) {
+      const item = cluster[j];
+      if (!tMatches && normT.includes(item)) tMatches = true;
+      if (!qMatches && normQ.includes(item)) qMatches = true;
+      if (tMatches && qMatches) return true;
     }
   }
   return false;
 }
 
-const STOP_TOKENS = new Set(['for', 'and', 'the', 'and', 'و', 'في', 'من', 'co', 'company', 'corp']);
+const STOP_TOKENS = new Set(['for', 'and', 'the', 'و', 'في', 'من', 'co', 'company', 'corp']);
+
+function getSubsetTokens(text: string): string[] {
+  const cached = subsetTokensCache.get(text);
+  if (cached) return cached;
+  const tokens = extractCanonicalTokens(text).filter((t) => !STOP_TOKENS.has(t) && t.length >= 2);
+  return setBoundedCache(subsetTokensCache, text, tokens);
+}
 
 export function checkTokenSubsetMatch(targetText: string, searchQuery: string): boolean {
   if (!targetText || !searchQuery) return false;
-  const tTokens = extractCanonicalTokens(targetText).filter((t) => !STOP_TOKENS.has(t) && t.length >= 2);
-  const qTokens = extractCanonicalTokens(searchQuery).filter((t) => !STOP_TOKENS.has(t) && t.length >= 2);
+  const tTokens = getSubsetTokens(targetText);
+  const qTokens = getSubsetTokens(searchQuery);
 
   if (qTokens.length === 0 || tTokens.length === 0) return false;
 
-  const allQInT = qTokens.every((qt) => tTokens.includes(qt));
-  if (allQInT) return true;
+  const tSet = new Set(tTokens);
+  let commonCount = 0;
+  for (let i = 0; i < qTokens.length; i++) {
+    if (tSet.has(qTokens[i])) commonCount++;
+  }
 
-  const allTInQ = tTokens.every((tt) => qTokens.includes(tt));
-  if (allTInQ) return true;
+  if (commonCount === qTokens.length) return true;
 
-  const common = qTokens.filter((qt) => tTokens.includes(qt));
-  if (common.length >= 2 && (common.length / Math.min(qTokens.length, tTokens.length)) >= 0.6) {
+  const qSet = new Set(qTokens);
+  let tInQCount = 0;
+  for (let i = 0; i < tTokens.length; i++) {
+    if (qSet.has(tTokens[i])) tInQCount++;
+  }
+  if (tInQCount === tTokens.length) return true;
+
+  if (commonCount >= 2 && commonCount / Math.min(qTokens.length, tTokens.length) >= 0.6) {
     return true;
   }
 
   return false;
 }
 
-/**
- * Intelligent Single-Field Bilingual Matcher (Strict Precision)
- */
+const matchesBilingualCache = new Map<string, boolean>();
 export function matchesBilingual(targetText: string, searchQuery: string): boolean {
   if (!searchQuery || !searchQuery.trim()) return true;
   if (!targetText) return false;
 
+  const cacheKey = `${targetText}\u0000${searchQuery}`;
+  const cached = matchesBilingualCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const res = internalMatchesBilingual(targetText, searchQuery);
+  return setBoundedCache(matchesBilingualCache, cacheKey, res, MAX_MATCH_CACHE_SIZE);
+}
+
+function internalMatchesBilingual(targetText: string, searchQuery: string): boolean {
   const rawTarget = targetText.toLowerCase().trim();
   const rawQuery = searchQuery.toLowerCase().trim();
 
@@ -638,22 +725,21 @@ export function matchesBilingual(targetText: string, searchQuery: string): boole
     return true;
   }
 
-  // 6. Dictionary Alias Cross-Matching
-  for (const [key, val] of Object.entries(BILINGUAL_DICTIONARY)) {
-    const dictEnClean = cleanEnglish(val.en);
-    const dictArClean = cleanArabic(val.ar);
-    const keyClean = cleanEnglish(key);
-
+  // 6. Dictionary Alias Cross-Matching (using precomputed entries)
+  for (let i = 0; i < PRECOMPUTED_DICTIONARY.length; i++) {
+    const entry = PRECOMPUTED_DICTIONARY[i];
     const targetMatchesDict =
-      cleanTargetEn.includes(dictEnClean) ||
-      cleanTargetEn.includes(keyClean) ||
-      cleanTargetAr.includes(dictArClean);
+      (entry.dictEnClean.length >= 2 && cleanTargetEn.includes(entry.dictEnClean)) ||
+      (entry.keyClean.length >= 2 && cleanTargetEn.includes(entry.keyClean)) ||
+      (entry.dictArClean.length >= 2 && cleanTargetAr.includes(entry.dictArClean)) ||
+      (entry.keyArClean.length >= 2 && !entry.keyClean && cleanTargetAr.includes(entry.keyArClean));
 
     if (targetMatchesDict) {
       if (
-        (cleanQueryAr.length >= 3 && dictArClean.includes(cleanQueryAr)) ||
-        (cleanQueryEn.length >= 3 && dictEnClean.includes(cleanQueryEn)) ||
-        (cleanQueryEn.length >= 3 && keyClean.includes(cleanQueryEn))
+        (cleanQueryAr.length >= 3 && entry.dictArClean.includes(cleanQueryAr)) ||
+        (cleanQueryAr.length >= 3 && entry.keyArClean.length >= 3 && entry.keyArClean.includes(cleanQueryAr)) ||
+        (cleanQueryEn.length >= 3 && entry.dictEnClean.includes(cleanQueryEn)) ||
+        (cleanQueryEn.length >= 3 && entry.keyClean.length >= 3 && entry.keyClean.includes(cleanQueryEn))
       ) {
         return true;
       }
@@ -678,6 +764,16 @@ export interface RecordScoreResult {
   matchedFields: string[];
 }
 
+const ARABIC_ORDINAL_REGEXES: Array<{ regex: RegExp; val: number }> = Object.entries(
+  ARABIC_ORDINAL_MAP
+).map(([word, val]) => ({
+  regex: new RegExp(`(?:الظرف|ظرف|صورة|صوره|الصورة|الصوره|ملف|image|file)\\s+${word}`, 'i'),
+  val,
+}));
+
+const parsedQueryCache = new Map<string, ParsedSearchQuery>();
+const scoreArchiveRecordCache = new Map<string, RecordScoreResult>();
+
 /**
  * Parses user search query into structured intent (File number, Box, Year, and Keywords)
  */
@@ -685,6 +781,9 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
   if (!query || !query.trim()) {
     return { raw: '', keywords: [] };
   }
+
+  const cached = parsedQueryCache.get(query);
+  if (cached) return cached;
 
   const norm = normalizeDigits(query.trim());
   let remainder = norm;
@@ -694,11 +793,12 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
 
   // Standalone single or double digit (e.g. "1" or "2" or "15")
   if (/^\d{1,2}$/.test(remainder)) {
-    return {
+    const res: ParsedSearchQuery = {
       raw: query,
       targetFileNumber: parseInt(remainder, 10),
       keywords: [],
     };
+    return setBoundedCache(parsedQueryCache, query, res);
   }
 
   // File / Envelope pattern: "Image 1", "الظرف 1", "صورة 1", "ملف 1", "#1", "file 1"
@@ -709,15 +809,12 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
     targetFileNumber = parseInt(fileNumMatch[1], 10);
     remainder = remainder.replace(fileNumMatch[0], ' ');
   } else {
-    // Check Arabic ordinal words: "الصورة الأولى", "الظرف الثاني"
-    for (const [word, val] of Object.entries(ARABIC_ORDINAL_MAP)) {
-      const ordinalRegex = new RegExp(
-        `(?:الظرف|ظرف|صورة|صوره|الصورة|الصوره|ملف|image|file)\\s+${word}`,
-        'i'
-      );
-      if (ordinalRegex.test(remainder)) {
+    // Check precompiled Arabic ordinal words: "الصورة الأولى", "الظرف الثاني"
+    for (let i = 0; i < ARABIC_ORDINAL_REGEXES.length; i++) {
+      const { regex, val } = ARABIC_ORDINAL_REGEXES[i];
+      if (regex.test(remainder)) {
         targetFileNumber = val;
-        remainder = remainder.replace(ordinalRegex, ' ');
+        remainder = remainder.replace(regex, ' ');
         break;
       }
     }
@@ -743,13 +840,14 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
     .map((k) => k.trim())
     .filter((k) => k.length > 0);
 
-  return {
+  const result: ParsedSearchQuery = {
     raw: query,
     targetFileNumber,
     targetBoxNumber,
     targetYear,
     keywords,
   };
+  return setBoundedCache(parsedQueryCache, query, result);
 }
 
 /**
@@ -776,6 +874,29 @@ export function scoreArchiveRecord(
     return { score: 100, isExactMatch: false, matchedFields: [] };
   }
 
+  const cacheKey = `${query}\u0000${record.boxId ?? ''}\u0000${record.fileNo}\u0000${record.year}\u0000${record.docNo}\u0000${record.checkNo}\u0000${record.envelopeLabel}\u0000${record.supplierName}\u0000${record.notes ?? ''}`;
+  const cached = scoreArchiveRecordCache.get(cacheKey);
+  if (cached) return cached;
+
+  const result = internalScoreArchiveRecord(record, query);
+  return setBoundedCache(scoreArchiveRecordCache, cacheKey, result, MAX_MATCH_CACHE_SIZE);
+}
+
+function internalScoreArchiveRecord(
+  record: {
+    supplierName: string;
+    docNo: string;
+    checkNo: string;
+    envelopeLabel: string;
+    fileNo: number;
+    year: number;
+    notes?: string;
+    boxTitle?: string;
+    boxCode?: string;
+    boxId?: number;
+  },
+  query: string
+): RecordScoreResult {
   const parsed = parseSearchQuery(query);
   const matchedFields: string[] = [];
   let score = 0;
@@ -1039,40 +1160,51 @@ export function matchesArchiveRecord(
   return result.score > 0;
 }
 
-/**
- * Returns dual-language display information for a company/supplier
- */
-export function getSupplierBilingualInfo(name: string): {
+type SupplierBilingualInfo = {
   primary: string;
   secondary?: string;
   isEnglish: boolean;
-} {
+};
+
+const supplierInfoCache = new Map<string, SupplierBilingualInfo>();
+
+/**
+ * Returns dual-language display information for a company/supplier (memoized)
+ */
+export function getSupplierBilingualInfo(name: string): SupplierBilingualInfo {
   if (!name) return { primary: '', isEnglish: false };
+
+  const cached = supplierInfoCache.get(name);
+  if (cached) return cached;
 
   const isEn = isMainlyEnglish(name);
   const cleanEn = cleanEnglish(name);
   const cleanAr = cleanArabic(name);
 
-  // Look up in dictionary
-  for (const [key, val] of Object.entries(BILINGUAL_DICTIONARY)) {
-    const keyClean = cleanEnglish(key);
-    const dictEnClean = cleanEnglish(val.en);
-    const dictArClean = cleanArabic(val.ar);
+  // Look up in precomputed dictionary
+  for (let i = 0; i < PRECOMPUTED_DICTIONARY.length; i++) {
+    const entry = PRECOMPUTED_DICTIONARY[i];
 
-    if (cleanEn.includes(keyClean) || cleanEn.includes(dictEnClean)) {
-      return {
+    if (
+      (entry.keyClean.length >= 2 && cleanEn.includes(entry.keyClean)) ||
+      (entry.dictEnClean.length >= 2 && cleanEn.includes(entry.dictEnClean))
+    ) {
+      return setBoundedCache(supplierInfoCache, name, {
         primary: name,
-        secondary: val.ar,
+        secondary: entry.ar,
         isEnglish: isEn,
-      };
+      });
     }
 
-    if (cleanAr.includes(dictArClean)) {
-      return {
+    if (
+      (entry.dictArClean.length >= 2 && cleanAr.includes(entry.dictArClean)) ||
+      (entry.keyArClean.length >= 2 && !entry.keyClean && cleanAr.includes(entry.keyArClean))
+    ) {
+      return setBoundedCache(supplierInfoCache, name, {
         primary: name,
-        secondary: val.en,
+        secondary: entry.en,
         isEnglish: isEn,
-      };
+      });
     }
   }
 
@@ -1080,16 +1212,16 @@ export function getSupplierBilingualInfo(name: string): {
   if (isEn) {
     const autoAr = transliterateLatinToArabic(name);
     if (autoAr && autoAr.length > 2) {
-      return {
+      return setBoundedCache(supplierInfoCache, name, {
         primary: name,
         secondary: autoAr,
         isEnglish: true,
-      };
+      });
     }
   }
 
-  return {
+  return setBoundedCache(supplierInfoCache, name, {
     primary: name,
     isEnglish: isEn,
-  };
+  });
 }

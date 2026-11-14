@@ -1,4 +1,14 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, {
+  Suspense,
+  lazy,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  useDeferredValue,
+  startTransition,
+} from 'react';
 import {
   Archive,
   ArrowRight,
@@ -8,17 +18,17 @@ import {
   Calendar,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardPaste,
   Cloud,
   Copy,
   Download,
-  Edit3,
   ExternalLink,
   FileCode2,
   FileSpreadsheet,
   FileText,
   FolderOpen,
-  LayoutGrid,
   List,
   Menu,
   Pencil,
@@ -30,7 +40,6 @@ import {
   Search,
   Share2,
   Smartphone,
-  Tablet,
   Trash2,
   X,
   XCircle,
@@ -42,32 +51,17 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { askGeminiAiSearch, AiSearchResponse } from './utils/aiSearchService';
-import { AiSettingsModal } from './components/AiSettingsModal';
-import { AiImageScannerModal } from './components/AiImageScannerModal';
-import { ChecksVaultView } from './components/ChecksVaultView';
 import {
   ARCHIVE_BOXES,
-  AVAILABLE_YEARS,
   ArchiveBox,
   ArchiveFileRecord,
   MASTER_PDF_PATH,
   MASTER_USER_SUPPLIERS,
   normalizeArabicSearch,
 } from './data/archiveData';
-import { BoxQrCode, Code128Barcode } from './components/BoxCodes';
-import { PrintMode, PrintSheet, SupplierAuditItem, SupplierAuditLocation } from './components/PrintSheet';
-import { QrModal } from './components/QrModal';
-import {
-  AddSingleSupplierModal,
-  BatchAddSuppliersModal,
-  CreateBoxModal,
-  EditBoxModal,
-  EditFileRecordModal,
-} from './components/BoxEditorModals';
-import { downloadStandaloneHtml } from './utils/singleFileExporter';
+import type { PrintMode, SupplierAuditItem, SupplierAuditLocation } from './components/PrintSheet';
 import {
   matchesBilingual,
-  matchesArchiveRecord,
   scoreArchiveRecord,
   getSupplierBilingualInfo,
   getBilingualFileLabel,
@@ -81,14 +75,121 @@ import {
   testFirestoreConnection,
   cacheBoxesLocally,
   getLocalCachedBoxes,
+  reconcileBoxWithMaster,
 } from './services/firestoreArchive';
 import {
   FullPageSkeleton,
   TopSyncBar,
   FloatingSyncBadge,
-  BoxCardSkeleton,
   FileRowSkeleton,
 } from './components/ArchiveLoadingSkeleton';
+import { PWAInstallButton, OfflineIndicator } from './components/PwaAndroidBanner';
+import { triggerHaptic } from './hooks/useAndroidPwa';
+
+// Lazy-loaded heavy modules so initial boot stays fast and non-blocking
+const AiSettingsModal = lazy(() =>
+  import('./components/AiSettingsModal').then((m) => ({ default: m.AiSettingsModal }))
+);
+const AiImageScannerModal = lazy(() =>
+  import('./components/AiImageScannerModal').then((m) => ({ default: m.AiImageScannerModal }))
+);
+const ChecksVaultView = lazy(() =>
+  import('./components/ChecksVaultView').then((m) => ({ default: m.ChecksVaultView }))
+);
+const BoxQrCode = lazy(() =>
+  import('./components/BoxCodes').then((m) => ({ default: m.BoxQrCode }))
+);
+const Code128Barcode = lazy(() =>
+  import('./components/BoxCodes').then((m) => ({ default: m.Code128Barcode }))
+);
+const PrintSheet = lazy(() =>
+  import('./components/PrintSheet').then((m) => ({ default: m.PrintSheet }))
+);
+const QrModal = lazy(() =>
+  import('./components/QrModal').then((m) => ({ default: m.QrModal }))
+);
+const AddSingleSupplierModal = lazy(() =>
+  import('./components/BoxEditorModals').then((m) => ({ default: m.AddSingleSupplierModal }))
+);
+const BatchAddSuppliersModal = lazy(() =>
+  import('./components/BoxEditorModals').then((m) => ({ default: m.BatchAddSuppliersModal }))
+);
+const CreateBoxModal = lazy(() =>
+  import('./components/BoxEditorModals').then((m) => ({ default: m.CreateBoxModal }))
+);
+const EditBoxModal = lazy(() =>
+  import('./components/BoxEditorModals').then((m) => ({ default: m.EditBoxModal }))
+);
+const EditFileRecordModal = lazy(() =>
+  import('./components/BoxEditorModals').then((m) => ({ default: m.EditFileRecordModal }))
+);
+
+/**
+ * Matches a scanned barcode or QR payload to a specific ArchiveBox cleanly.
+ * Never misinterprets supplier/check codes like CAL013, COF001, or years like 2017.
+ */
+function findBoxByBarcode(
+  rawInput: string,
+  boxList: ArchiveBox[],
+  allowNumericOnly: boolean
+): ArchiveBox | undefined {
+  const scanned = rawInput.trim();
+  if (!scanned) return undefined;
+  const lower = scanned.toLowerCase();
+
+  // 1. QR URL deep-link payload (e.g. https://.../ ?box=16)
+  const urlMatch = scanned.match(/[?&]box=(\d+)\b/i);
+  if (urlMatch) {
+    const id = parseInt(urlMatch[1], 10);
+    return boxList.find((b) => b.id === id);
+  }
+
+  // 2. Exact barcodeValue or box code match (e.g. ARC-2017-BOX16, BOX-16, BOX-2016-01)
+  const exact = boxList.find(
+    (b) => b.barcodeValue.toLowerCase() === lower || b.code.toLowerCase() === lower
+  );
+  if (exact) return exact;
+
+  // 3. Normalized ARC-YYYY-BOXNN format
+  const arcMatch = scanned.match(/^ARC[-_\s]?(\d{4})[-_\s]?BOX[-_\s]?0*(\d+)$/i);
+  if (arcMatch) {
+    const yr = parseInt(arcMatch[1], 10);
+    const num = parseInt(arcMatch[2], 10);
+    const padded = String(num).padStart(2, '0');
+    const normalizedBarcode = `arc-${yr}-box${padded}`;
+    return boxList.find(
+      (b) =>
+        b.barcodeValue.toLowerCase() === normalizedBarcode ||
+        (b.primaryYear === yr && (b.id === num || b.code.toLowerCase().endsWith(padded)))
+    );
+  }
+
+  // 4. Normalized BOX-YYYY-NN format
+  const boxYearMatch = scanned.match(/^BOX[-_\s]?(\d{4})[-_\s]?0*(\d+)$/i);
+  if (boxYearMatch) {
+    const yr = parseInt(boxYearMatch[1], 10);
+    const num = parseInt(boxYearMatch[2], 10);
+    const padded = String(num).padStart(2, '0');
+    const normalizedCode = `box-${yr}-${padded}`;
+    return boxList.find((b) => b.code.toLowerCase() === normalizedCode);
+  }
+
+  // 5. Explicit BOX-N / BOX N / صندوق N format
+  const explicitBoxMatch = scanned.match(/^(?:BOX|صندوق)[-_\s#]*0*(\d+)$/i);
+  if (explicitBoxMatch) {
+    const num = parseInt(explicitBoxMatch[1], 10);
+    const padded = String(num).padStart(2, '0');
+    return boxList.find((b) => b.id === num || b.code.toLowerCase() === `box-${padded}`);
+  }
+
+  // 6. Standalone 1-3 digit box ID (only when outside text inputs / rapid hardware scan, never 4-digit years)
+  if (allowNumericOnly && /^0*(\d{1,3})$/.test(scanned)) {
+    const num = parseInt(scanned, 10);
+    return boxList.find((b) => b.id === num);
+  }
+
+  return undefined;
+}
 
 type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'checks-vault' | 'qrcodes' | 'suppliers' | 'extraction-plan';
 type YearFilter = 'all' | number;
@@ -118,21 +219,27 @@ export function App() {
   const [selectedBoxId, setSelectedBoxId] = useState<number>(1);
   const [highlightedFileNo, setHighlightedFileNo] = useState<number | null>(null);
 
-  // Search states
+  // Search states (with deferred values so typing never stalls UI frames)
   const [globalSearchQuery, setGlobalSearchQuery] = useState<string>('');
+  const deferredGlobalSearchQuery = useDeferredValue(globalSearchQuery);
   const [searchBoxFilter, setSearchBoxFilter] = useState<number | 'all'>('all');
   const [intraBoxQuery, setIntraBoxQuery] = useState<string>('');
+  const deferredIntraBoxQuery = useDeferredValue(intraBoxQuery);
   const [intraSearchScope, setIntraSearchScope] = useState<IntraSearchScope>('current-box');
   const [supplierDirectoryQuery, setSupplierDirectoryQuery] = useState<string>('');
+  const deferredSupplierDirectoryQuery = useDeferredValue(supplierDirectoryQuery);
   const [supplierStatusFilter, setSupplierStatusFilter] = useState<'all' | 'found' | 'missing'>('all');
   const [supplierScopeFilter, setSupplierScopeFilter] = useState<'requested' | 'allArchive'>('requested');
   const [prefilledSupplierName, setPrefilledSupplierName] = useState<string>('');
   const [extractionPlanFilter, setExtractionPlanFilter] = useState<'all' | 'required-only'>('required-only');
   const [missingSuppliersSearch, setMissingSuppliersSearch] = useState<string>('');
+  const deferredMissingSuppliersSearch = useDeferredValue(missingSuppliersSearch);
   const [isAiSearching, setIsAiSearching] = useState<boolean>(false);
   const [aiSearchResult, setAiSearchResult] = useState<AiSearchResponse | null>(null);
   const [isAiSettingsModalOpen, setIsAiSettingsModalOpen] = useState<boolean>(false);
   const [isAiImageScannerOpen, setIsAiImageScannerOpen] = useState<boolean>(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const intraSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Trigger Gemini AI Search Assistant
   const handleTriggerAiSearch = async (overrideQuery?: string) => {
@@ -200,9 +307,28 @@ export function App() {
   const [isAddSingleModalOpen, setIsAddSingleModalOpen] = useState<boolean>(false);
   const [printMode, setPrintMode] = useState<PrintMode>('all-stickers');
   const [printTargetBoxId, setPrintTargetBoxId] = useState<number>(1);
+  const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  const [visibleSearchLimit, setVisibleSearchLimit] = useState<number>(80);
+  const [visibleSuppliersLimit, setVisibleSuppliersLimit] = useState<number>(60);
   const [copiedBoxId, setCopiedBoxId] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [openedViaQrBanner, setOpenedViaQrBanner] = useState<number | null>(null);
+  const hasAppliedInitialDeepLink = useRef<boolean>(false);
+
+  useEffect(() => {
+    const handleAfterPrint = () => setIsPrinting(false);
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => window.removeEventListener('afterprint', handleAfterPrint);
+  }, []);
+
+  useEffect(() => {
+    setVisibleSearchLimit(80);
+  }, [deferredGlobalSearchQuery, searchBoxFilter, yearFilter]);
+
+  useEffect(() => {
+    setVisibleSuppliersLimit(60);
+  }, [deferredSupplierDirectoryQuery, supplierStatusFilter, supplierScopeFilter]);
+
   // Focused Scan Viewer mode: when a user scans the QR code on a box, show ONLY the box files & search
   const [isFocusedScanMode, setIsFocusedScanMode] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -214,18 +340,218 @@ export function App() {
   // View mode for box files: 'cards' (optimal for mobile & tablets) vs 'table' (dense desktop)
   const [boxViewMode, setBoxViewMode] = useState<'cards' | 'table'>('cards');
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage((prev) => (prev === msg ? null : prev));
     }, 2800);
-  };
+  }, []);
+
+  // Prefetch lazy chunks in background when idle or on nav hover so every click is 0ms instant
+  const prefetchSectionChunk = useCallback((section: ActiveSection | 'modals') => {
+    if (section === 'checks-vault') {
+      void import('./components/ChecksVaultView');
+      void import('./components/BoxCodes');
+    } else if (section === 'qrcodes') {
+      void import('./components/BoxCodes');
+      void import('./components/QrModal');
+    } else if (section === 'modals') {
+      void import('./components/BoxEditorModals');
+      void import('./components/QrModal');
+    }
+  }, []);
+
+  useEffect(() => {
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    const runPrefetch = () => {
+      void import('./components/BoxEditorModals');
+      void import('./components/BoxCodes');
+      void import('./components/ChecksVaultView');
+    };
+    if (typeof win.requestIdleCallback === 'function') {
+      const id = win.requestIdleCallback(runPrefetch, { timeout: 2500 });
+      return () => win.cancelIdleCallback?.(id);
+    }
+    const timer = window.setTimeout(runPrefetch, 1200);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  // Global keyboard shortcuts: Escape closes modals/drawer; Ctrl+K or "/" focuses active search
+  useEffect(() => {
+    const handleGlobalKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (
+          qrModalBox ||
+          isCreateBoxModalOpen ||
+          isBatchAddModalOpen ||
+          boxToEdit ||
+          recordToEdit ||
+          isAddSingleModalOpen ||
+          isAiSettingsModalOpen ||
+          isAiImageScannerOpen ||
+          mobileSidebarOpen
+        ) {
+          setQrModalBox(null);
+          setIsCreateBoxModalOpen(false);
+          setIsBatchAddModalOpen(false);
+          setBoxToEdit(null);
+          setRecordToEdit(null);
+          setIsAddSingleModalOpen(false);
+          setIsAiSettingsModalOpen(false);
+          setIsAiImageScannerOpen(false);
+          setMobileSidebarOpen(false);
+        }
+        return;
+      }
+
+      const target = e.target as HTMLElement | null;
+      const isInput = Boolean(
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      );
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (activeSection === 'boxes' && intraSearchInputRef.current) {
+          intraSearchInputRef.current.focus();
+          intraSearchInputRef.current.select();
+        } else {
+          if (activeSection !== 'dashboard' && activeSection !== 'search') {
+            startTransition(() => setActiveSection('search'));
+          }
+          requestAnimationFrame(() => {
+            searchInputRef.current?.focus();
+            searchInputRef.current?.select();
+          });
+        }
+      } else if (e.key === '/' && !isInput && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (activeSection === 'boxes' && intraSearchInputRef.current) {
+          intraSearchInputRef.current.focus();
+        } else {
+          if (activeSection !== 'dashboard' && activeSection !== 'search') {
+            startTransition(() => setActiveSection('search'));
+          }
+          requestAnimationFrame(() => searchInputRef.current?.focus());
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKey);
+    return () => window.removeEventListener('keydown', handleGlobalKey);
+  }, [
+    activeSection,
+    qrModalBox,
+    isCreateBoxModalOpen,
+    isBatchAddModalOpen,
+    boxToEdit,
+    recordToEdit,
+    isAddSingleModalOpen,
+    isAiSettingsModalOpen,
+    isAiImageScannerOpen,
+    mobileSidebarOpen,
+  ]);
+
+  const switchSection = useCallback(
+    (section: ActiveSection, pushHistory = true) => {
+      prefetchSectionChunk(section);
+      triggerHaptic(10);
+      startTransition(() => {
+        setActiveSection(section);
+      });
+      setMobileSidebarOpen(false);
+      if (pushHistory && typeof window !== 'undefined' && section !== activeSection) {
+        const url = new URL(window.location.href);
+        if (section === 'dashboard') {
+          url.searchParams.delete('section');
+        } else {
+          url.searchParams.set('section', section);
+        }
+        window.history.pushState({ section }, '', url.toString());
+      }
+    },
+    [prefetchSectionChunk, activeSection]
+  );
+
+  // Android Hardware Back Button & Browser History integration for overlays/sections
+  const anyOverlayOpen = Boolean(
+    qrModalBox ||
+      isCreateBoxModalOpen ||
+      isBatchAddModalOpen ||
+      boxToEdit ||
+      recordToEdit ||
+      isAddSingleModalOpen ||
+      isAiSettingsModalOpen ||
+      isAiImageScannerOpen ||
+      mobileSidebarOpen
+  );
+  const pushedModalHistoryRef = useRef(false);
+
+  useEffect(() => {
+    if (anyOverlayOpen && !pushedModalHistoryRef.current) {
+      pushedModalHistoryRef.current = true;
+      window.history.pushState({ ...(window.history.state || {}), __archiveModal: true }, '');
+    } else if (!anyOverlayOpen && pushedModalHistoryRef.current) {
+      pushedModalHistoryRef.current = false;
+      if (window.history.state?.__archiveModal) {
+        window.history.back();
+      }
+    }
+  }, [anyOverlayOpen]);
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (pushedModalHistoryRef.current) {
+        pushedModalHistoryRef.current = false;
+        setQrModalBox(null);
+        setIsCreateBoxModalOpen(false);
+        setIsBatchAddModalOpen(false);
+        setBoxToEdit(null);
+        setRecordToEdit(null);
+        setIsAddSingleModalOpen(false);
+        setIsAiSettingsModalOpen(false);
+        setIsAiImageScannerOpen(false);
+        setMobileSidebarOpen(false);
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      if (!params.get('box') && isFocusedScanMode) {
+        setIsFocusedScanMode(false);
+      }
+
+      const targetSection = (e.state?.section || params.get('section') || 'dashboard') as ActiveSection;
+      const validSections: ActiveSection[] = [
+        'dashboard',
+        'search',
+        'boxes',
+        'checks-vault',
+        'qrcodes',
+        'suppliers',
+        'extraction-plan',
+      ];
+      const nextSection = validSections.includes(targetSection) ? targetSection : 'dashboard';
+      startTransition(() => {
+        setActiveSection(nextSection);
+      });
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isFocusedScanMode]);
+
+  const handleYearFilterChange = useCallback((yr: YearFilter) => {
+    startTransition(() => {
+      setYearFilter(yr);
+    });
+  }, []);
 
   // Instant & smooth loading transition
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsInitialLoading(false);
-    }, 200);
+    }, 150);
     return () => clearTimeout(timer);
   }, []);
 
@@ -277,7 +603,7 @@ export function App() {
     return Array.from(yrSet).sort((a, b) => b - a);
   }, [boxes]);
 
-  // Auto-switch selected box to match the isolated financial year
+  // Auto-switch selected box & keep searchBoxFilter valid when isolated year or boxes update
   useEffect(() => {
     if (yearFilter !== 'all') {
       const isCurrentBoxInYear = boxes.some(
@@ -289,8 +615,28 @@ export function App() {
           setSelectedBoxId(firstMatchingBox.id);
         }
       }
+      if (
+        searchBoxFilter !== 'all' &&
+        !boxes.some((b) => b.id === searchBoxFilter && (b.years || []).includes(yearFilter))
+      ) {
+        setSearchBoxFilter('all');
+      }
+    } else if (searchBoxFilter !== 'all' && !boxes.some((b) => b.id === searchBoxFilter)) {
+      setSearchBoxFilter('all');
     }
-  }, [yearFilter, boxes, selectedBoxId]);
+  }, [yearFilter, boxes, selectedBoxId, searchBoxFilter]);
+
+  // Smoothly scroll highlighted supplier record into view when navigating directly to a file
+  useEffect(() => {
+    if (activeSection !== 'boxes' || highlightedFileNo === null) return;
+    const timer = window.setTimeout(() => {
+      const el = document.querySelector(`[data-box-file="${selectedBoxId}-${highlightedFileNo}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 90);
+    return () => window.clearTimeout(timer);
+  }, [activeSection, selectedBoxId, highlightedFileNo, boxViewMode]);
 
   // Handle box creation with pasted suppliers (persisted directly to Cloud Firestore)
   const handleCreateBox = async (newBox: ArchiveBox) => {
@@ -437,6 +783,7 @@ export function App() {
 
   // Toggle audit check (green highlight / found status) on a supplier record
   const handleToggleRecordCheck = async (boxId: number, fileNo: number) => {
+    triggerHaptic(18);
     let boxToSave: ArchiveBox | null = null;
     setBoxes((prev) => {
       const updated = prev.map((b) => {
@@ -514,7 +861,9 @@ export function App() {
       checkNo: record.checkNo,
       year: record.year,
       notes: record.notes,
-      amountEgp: record.amountEgp,
+      ...(typeof record.amountEgp === 'number' && Number.isFinite(record.amountEgp)
+        ? { amountEgp: record.amountEgp }
+        : {}),
     };
     await handleAddSingleRecord(boxId, fullRecord);
   };
@@ -550,11 +899,11 @@ export function App() {
     }
   };
 
-  // Reset to original 13 default boxes in Cloud Firestore and local
+  // Reset to all master default boxes in Cloud Firestore and local
   const handleResetToDefault = async () => {
     if (
       window.confirm(
-        'هل تريد استعادة الصناديق الافتراضية الأصلية (1 إلى 13) في قاعدة البيانات السحابية؟ سيتم تحديث جميع الأجهزة المتصلة والموقع فورياً.'
+        `هل تريد استعادة الصناديق المرجعية الأصلية (${ARCHIVE_BOXES.length} صندوق) في قاعدة البيانات السحابية؟ سيتم تحديث جميع الأجهزة المتصلة والموقع فورياً.`
       )
     ) {
       showToast('جاري استعادة الصناديق الأصلية في السحابة...');
@@ -569,21 +918,155 @@ export function App() {
     }
   };
 
-  // Handle ?box=N deep-link from QR Code scans
+  // Sync missing master records for the active box to state, localStorage, and Firestore
+  const handleSyncActiveBoxMaster = async (targetBox: ArchiveBox) => {
+    const res = reconcileBoxWithMaster(targetBox, undefined, true);
+    if (!res.changed) return;
+    setBoxes((prev) => {
+      const updated = prev.map((b) => (b.id === targetBox.id ? res.box : b));
+      cacheBoxesLocally(updated);
+      return updated;
+    });
+    try {
+      await saveBoxToCloud(res.box);
+      showToast(`تمت مزامنة واستكمال ملفات ${res.box.titleAr} (${res.box.files.length} ملف) في السحابة بنجاح!`);
+    } catch (e) {
+      console.error('Failed to sync master box records:', e);
+      showToast(`تمت استعادة ملفات ${res.box.titleAr} محلياً.`);
+    }
+  };
+
+  const openBoxFromBarcode = useCallback(
+    (matchedBox: ArchiveBox) => {
+      startTransition(() => {
+        if (yearFilter !== 'all' && !(matchedBox.years || []).includes(yearFilter)) {
+          setYearFilter('all');
+        }
+        setSelectedBoxId(matchedBox.id);
+        setIntraSearchScope('current-box');
+        setIntraBoxQuery('');
+        setHighlightedFileNo(null);
+        setActiveSection('boxes');
+        setIsFocusedScanMode(false);
+        setOpenedViaQrBanner(matchedBox.id);
+        setMobileSidebarOpen(false);
+      });
+
+      const url = new URL(window.location.href);
+      url.searchParams.set('box', String(matchedBox.id));
+      window.history.replaceState({}, '', url.toString());
+
+      triggerHaptic([20, 35, 20]);
+      showToast(`⚡ تم مسح باركود الصندوق وفتحه تلقائياً: ${matchedBox.titleAr} (${matchedBox.code})`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [showToast, yearFilter]
+  );
+
+  // Handle ?box=N, ?section=..., and ?scan=1 deep-links (QR scans & Android App Shortcuts) ONCE on initial boot
   useEffect(() => {
+    if (hasAppliedInitialDeepLink.current) return;
     const params = new URLSearchParams(window.location.search);
     const boxParam = params.get('box');
+    const sectionParam = params.get('section') as ActiveSection | null;
+    const scanParam = params.get('scan');
+
     if (boxParam) {
       const parsedId = Number(boxParam);
       const exists = boxes.some((b) => b.id === parsedId);
       if (exists) {
+        hasAppliedInitialDeepLink.current = true;
         setSelectedBoxId(parsedId);
         setActiveSection('boxes');
         setOpenedViaQrBanner(parsedId);
         setIsFocusedScanMode(true);
       }
+      return;
+    }
+
+    hasAppliedInitialDeepLink.current = true;
+
+    const validSections: ActiveSection[] = [
+      'dashboard',
+      'search',
+      'boxes',
+      'checks-vault',
+      'qrcodes',
+      'suppliers',
+      'extraction-plan',
+    ];
+    if (sectionParam && validSections.includes(sectionParam)) {
+      setActiveSection(sectionParam);
+    }
+    if (scanParam === '1') {
+      setIsAiImageScannerOpen(true);
     }
   }, [boxes]);
+
+  // USB Barcode Scanner Support (HID / Keyboard Wedge):
+  // Listens for rapid barcode scanner inputs ending with Enter (e.g. ARC-2017-BOX16, BOX-16, or QR URL)
+  useEffect(() => {
+    let barcodeBuffer = '';
+    let lastKeyTime = Date.now();
+    let charCount = 0;
+    let totalDelta = 0;
+
+    const resetBuffer = () => {
+      barcodeBuffer = '';
+      charCount = 0;
+      totalDelta = 0;
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isInput = Boolean(
+        target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      );
+
+      const now = Date.now();
+      const delta = now - lastKeyTime;
+      if (delta > 120) {
+        resetBuffer();
+      } else if (charCount > 0) {
+        totalDelta += delta;
+      }
+      lastKeyTime = now;
+
+      if (e.key === 'Enter') {
+        const scanned = barcodeBuffer.trim();
+        const avgDelta = charCount > 1 ? totalDelta / (charCount - 1) : 999;
+        const isRapidScan = charCount >= 2 && avgDelta <= 65;
+        resetBuffer();
+
+        if (!scanned) return;
+
+        // Inside inputs: ONLY intercept explicit box barcodes (ARC-..., BOX-..., ?box=...), never supplier codes or human text
+        const matchedBox = findBoxByBarcode(scanned, boxes, !isInput && isRapidScan);
+
+        if (matchedBox) {
+          e.preventDefault();
+          if (isInput) {
+            setGlobalSearchQuery('');
+            setAiSearchResult(null);
+          }
+          openBoxFromBarcode(matchedBox);
+        } else if (!isInput && isRapidScan && scanned.length >= 2) {
+          setGlobalSearchQuery(scanned);
+          setActiveSection('search');
+          showToast(`🔍 تم البحث عن الباركود: "${scanned}"`);
+        }
+        return;
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        barcodeBuffer += e.key;
+        charCount += 1;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [boxes, openBoxFromBarcode, showToast]);
 
   const getBoxDirectUrl = useCallback((boxId: number): string => {
     if (typeof window === 'undefined') return `?box=${boxId}`;
@@ -629,8 +1112,12 @@ export function App() {
     return set.size;
   }, [yearFilteredRecords]);
 
-  // Comprehensive Suppliers Directory Index & Audit
+  // Comprehensive Suppliers Directory Index & Audit (computed ONLY when viewing Suppliers or printing Suppliers Audit)
+  const needsSuppliersAudit =
+    activeSection === 'suppliers' || (isPrinting && printMode === 'suppliers-audit');
+
   const suppliersDirectoryList = useMemo<SupplierAuditItem[]>(() => {
+    if (!needsSuppliersAudit) return [];
     const activeRecords = yearFilter === 'all' ? allFlattenedRecords : yearFilteredRecords;
 
     if (supplierScopeFilter === 'requested') {
@@ -709,9 +1196,10 @@ export function App() {
     });
 
     return items;
-  }, [allFlattenedRecords, yearFilteredRecords, yearFilter, supplierScopeFilter]);
+  }, [needsSuppliersAudit, allFlattenedRecords, yearFilteredRecords, yearFilter, supplierScopeFilter]);
 
   const filteredSuppliersDirectory = useMemo(() => {
+    if (!needsSuppliersAudit) return [];
     let list = suppliersDirectoryList;
 
     if (supplierStatusFilter === 'found') {
@@ -720,7 +1208,7 @@ export function App() {
       list = list.filter((s) => !s.isFound);
     }
 
-    const q = supplierDirectoryQuery.trim();
+    const q = deferredSupplierDirectoryQuery.trim();
     if (!q) return list;
 
     return list.filter((s) =>
@@ -734,13 +1222,13 @@ export function App() {
           (loc.docNo && loc.docNo.includes(q))
       )
     );
-  }, [suppliersDirectoryList, supplierStatusFilter, supplierDirectoryQuery]);
+  }, [needsSuppliersAudit, suppliersDirectoryList, supplierStatusFilter, deferredSupplierDirectoryQuery]);
 
   // Supplier Audit KPI Summary Statistics
   const suppliersAuditStats = useMemo(() => {
     const total = suppliersDirectoryList.length;
     const found = suppliersDirectoryList.filter((s) => s.isFound).length;
-    const missing = suppliersDirectoryList.filter((s) => !s.isFound).length;
+    const missing = total - found;
     const totalArchivedFiles = suppliersDirectoryList.reduce((acc, s) => acc + s.totalFiles, 0);
     const coveragePercent = total > 0 ? Math.round((found / total) * 100) : 0;
     return { total, found, missing, totalArchivedFiles, coveragePercent };
@@ -787,16 +1275,23 @@ export function App() {
     showToast('تم تصدير كشف تدقيق الموردين بالكامل بنجاح (Excel / CSV)');
   };
 
-  // Per-Box Supplier Extraction Plans (خطة استخراج الموردين لكل صندوق)
+  // Per-Box Supplier Extraction Plans (computed ONLY when viewing Extraction Plan or printing it)
+  const needsExtractionPlan =
+    activeSection === 'extraction-plan' || (isPrinting && printMode === 'extraction-plan');
+
   const boxExtractionPlans = useMemo(() => {
+    if (!needsExtractionPlan) return [];
     const targetBoxes = yearFilter === 'all' ? boxes : yearFilteredBoxes;
     return targetBoxes.map((box) => {
-      const requiredFiles = box.files.filter((f) =>
-        MASTER_USER_SUPPLIERS.some((uSup) => matchesBilingual(f.supplierName, uSup))
-      );
-      const otherFiles = box.files.filter((f) =>
-        !MASTER_USER_SUPPLIERS.some((uSup) => matchesBilingual(f.supplierName, uSup))
-      );
+      const requiredFiles: ArchiveFileRecord[] = [];
+      const otherFiles: ArchiveFileRecord[] = [];
+      for (const f of box.files) {
+        if (MASTER_USER_SUPPLIERS.some((uSup) => matchesBilingual(f.supplierName, uSup))) {
+          requiredFiles.push(f);
+        } else {
+          otherFiles.push(f);
+        }
+      }
       return {
         box,
         requiredFiles,
@@ -804,9 +1299,10 @@ export function App() {
         totalRequired: requiredFiles.length,
       };
     });
-  }, [boxes, yearFilteredBoxes, yearFilter]);
+  }, [needsExtractionPlan, boxes, yearFilteredBoxes, yearFilter]);
 
   const missingMasterSuppliers = useMemo(() => {
+    if (!needsExtractionPlan) return [];
     const targetBoxes = yearFilter === 'all' ? boxes : yearFilteredBoxes;
     const allArchived = targetBoxes.flatMap((b) => b.files);
     return MASTER_USER_SUPPLIERS.filter(
@@ -815,9 +1311,12 @@ export function App() {
       const bi = getSupplierBilingualInfo(s);
       return { name: s, secondary: bi.secondary };
     });
-  }, [boxes, yearFilteredBoxes, yearFilter]);
+  }, [needsExtractionPlan, boxes, yearFilteredBoxes, yearFilter]);
 
   const extractionSummaryStats = useMemo(() => {
+    if (!needsExtractionPlan) {
+      return { totalBoxes: 0, boxesWithRequired: 0, totalRequiredFiles: 0, missingSuppliersCount: 0 };
+    }
     const targetBoxes = yearFilter === 'all' ? boxes : yearFilteredBoxes;
     const boxesWithRequired = boxExtractionPlans.filter((p) => p.totalRequired > 0).length;
     const totalRequiredFiles = boxExtractionPlans.reduce((sum, p) => sum + p.totalRequired, 0);
@@ -827,7 +1326,7 @@ export function App() {
       totalRequiredFiles,
       missingSuppliersCount: missingMasterSuppliers.length,
     };
-  }, [boxes, yearFilteredBoxes, yearFilter, boxExtractionPlans, missingMasterSuppliers]);
+  }, [needsExtractionPlan, boxes, yearFilteredBoxes, yearFilter, boxExtractionPlans, missingMasterSuppliers]);
 
   const handleExportExtractionPlanCsv = () => {
     const headers = [
@@ -879,9 +1378,9 @@ export function App() {
     return boxes.find((b) => b.id === printTargetBoxId) || activeBox;
   }, [boxes, printTargetBoxId, activeBox]);
 
-  // Global Smart Search results with High-Precision Relevance Ranking
+  // Global Smart Search results with High-Precision Relevance Ranking (uses deferred query)
   const smartSearchResults = useMemo<FlattenedRecord[]>(() => {
-    const q = globalSearchQuery.trim();
+    const q = deferredGlobalSearchQuery.trim();
     if (!q) {
       return yearFilteredRecords.filter((rec) => {
         if (searchBoxFilter !== 'all' && rec.boxId !== searchBoxFilter) {
@@ -933,18 +1432,18 @@ export function App() {
     });
 
     return scoredItems;
-  }, [globalSearchQuery, yearFilteredRecords, searchBoxFilter, aiSearchResult]);
+  }, [deferredGlobalSearchQuery, yearFilteredRecords, searchBoxFilter, aiSearchResult]);
 
   // Dashboard inline preview search results (top 8 matches when typing on dashboard)
   const dashboardQuickResults = useMemo<FlattenedRecord[]>(() => {
-    const q = globalSearchQuery.trim();
+    const q = deferredGlobalSearchQuery.trim();
     if (!q) return [];
     return smartSearchResults.slice(0, 8);
-  }, [globalSearchQuery, smartSearchResults]);
+  }, [deferredGlobalSearchQuery, smartSearchResults]);
 
   // Intra-box or Same-Year search inside Box Management view
   const boxViewRecords = useMemo<FlattenedRecord[]>(() => {
-    const q = intraBoxQuery.trim();
+    const q = deferredIntraBoxQuery.trim();
     const targetYear = yearFilter !== 'all' ? yearFilter : activeBox.primaryYear;
 
     const basePool: FlattenedRecord[] =
@@ -976,11 +1475,11 @@ export function App() {
     });
 
     return scoredItems;
-  }, [intraBoxQuery, intraSearchScope, activeBox, allFlattenedRecords, yearFilter]);
+  }, [deferredIntraBoxQuery, intraSearchScope, activeBox, allFlattenedRecords, yearFilter]);
 
   // Filtered records for the dedicated focused scan viewer (only this box + search)
   const focusedBoxRecords = useMemo(() => {
-    const q = intraBoxQuery.trim();
+    const q = deferredIntraBoxQuery.trim();
     if (!q) return activeBox.files;
 
     const scoredItems: Array<{ file: ArchiveFileRecord; score: number }> = [];
@@ -1001,32 +1500,47 @@ export function App() {
 
     scoredItems.sort((a, b) => b.score - a.score || a.file.fileNo - b.file.fileNo);
     return scoredItems.map((x) => x.file);
-  }, [activeBox, intraBoxQuery]);
+  }, [activeBox, deferredIntraBoxQuery]);
 
-  // Navigation helpers
-  const navigateToBox = (boxId: number, fileNoToHighlight?: number) => {
-    setSelectedBoxId(boxId);
-    setIntraSearchScope('current-box');
-    setIntraBoxQuery('');
-    setHighlightedFileNo(fileNoToHighlight ?? null);
-    setActiveSection('boxes');
-    setMobileSidebarOpen(false);
+  // Navigation helpers (keeps year filter & highlighted file scroll synchronized)
+  const navigateToBox = useCallback(
+    (boxId: number, fileNoToHighlight?: number) => {
+      const targetBox = boxes.find((b) => b.id === boxId);
+      startTransition(() => {
+        if (targetBox && yearFilter !== 'all' && !(targetBox.years || []).includes(yearFilter)) {
+          setYearFilter('all');
+        }
+        setSelectedBoxId(boxId);
+        setIntraSearchScope('current-box');
+        setIntraBoxQuery('');
+        setHighlightedFileNo(fileNoToHighlight ?? null);
+        setActiveSection('boxes');
+        setMobileSidebarOpen(false);
+      });
 
-    const url = new URL(window.location.href);
-    url.searchParams.set('box', String(boxId));
-    window.history.replaceState({}, '', url.toString());
-  };
+      const url = new URL(window.location.href);
+      url.searchParams.set('box', String(boxId));
+      window.history.replaceState({}, '', url.toString());
+    },
+    [boxes, yearFilter]
+  );
 
-  const triggerPrint = (mode: PrintMode, boxId?: number) => {
+  const triggerPrint = async (mode: PrintMode, boxId?: number) => {
     if (boxId) {
       setPrintTargetBoxId(boxId);
     } else {
       setPrintTargetBoxId(activeBox.id);
     }
     setPrintMode(mode);
+    setIsPrinting(true);
+    try {
+      await import('./components/PrintSheet');
+    } catch {
+      // ignore chunk preload error
+    }
     setTimeout(() => {
       window.print();
-    }, 120);
+    }, 320);
   };
 
   const handleCopyBoxUrl = async (boxId: number) => {
@@ -1081,9 +1595,15 @@ export function App() {
     showToast('تم تصدير ملف البيانات بنجاح (CSV)');
   };
 
-  const handleDownloadSingleHtml = () => {
-    downloadStandaloneHtml(boxes);
-    showToast('تم تحميل ملف HTML المستقل الكامل بنجاح');
+  const handleDownloadSingleHtml = async () => {
+    try {
+      const { downloadStandaloneHtml } = await import('./utils/singleFileExporter');
+      downloadStandaloneHtml(boxes);
+      showToast('تم تحميل ملف HTML المستقل الكامل بنجاح');
+    } catch (err) {
+      console.error('Failed to download standalone HTML:', err);
+      showToast('تعذر تحميل ملف HTML المستقل');
+    }
   };
 
   const sectionTitles: Record<ActiveSection, string> = {
@@ -1113,12 +1633,12 @@ export function App() {
 
   if (isFocusedScanMode) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col" dir="rtl">
+      <div className="min-h-[100dvh] bg-slate-950 text-slate-100 flex flex-col" dir="rtl">
         {/* Top Sync Indicator */}
         {isSyncing && <TopSyncBar />}
 
         {/* Top Header for Mobile Scan Inspection */}
-        <header className="no-print sticky top-0 z-30 bg-[#0B1426]/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between gap-3 shadow-md">
+        <header className="no-print sticky top-0 z-30 bg-[#0B1426]/95 backdrop-blur-md border-b border-slate-800 px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-3 flex items-center justify-between gap-3 shadow-md">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex flex-col items-center justify-center font-mono-num font-black shrink-0 shadow-md">
               <span className="text-[9px] uppercase tracking-wider text-blue-200 font-bold">صندوق</span>
@@ -1148,9 +1668,22 @@ export function App() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => handleCopyBoxUrl(activeBox.id)}
-              className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center border border-slate-700 transition-colors cursor-pointer"
+              onClick={() => {
+                if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+                  navigator
+                    .share({
+                      title: `${activeBox.titleAr} — أرشيف فندق النيل ريتز كارلتون`,
+                      text: `محتويات ${activeBox.titleAr} (${activeBox.files.length} ملف)`,
+                      url: getBoxDirectUrl(activeBox.id),
+                    })
+                    .catch(() => {});
+                } else {
+                  handleCopyBoxUrl(activeBox.id);
+                }
+              }}
+              className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center border border-slate-700 transition-colors cursor-pointer"
               title="مشاركة رابط الصندوق"
+              aria-label="مشاركة رابط الصندوق"
             >
               <Share2 className="w-4 h-4" />
             </button>
@@ -1300,11 +1833,11 @@ export function App() {
                     </span>
                     <div className="min-w-0">
                       <h3 className="font-display font-bold text-sm sm:text-base text-white leading-snug break-words">
-                        <HighlightMatch text={file.supplierName} query={intraBoxQuery} />
+                        <HighlightMatch text={file.supplierName} query={deferredIntraBoxQuery} />
                       </h3>
                       {biInfo.secondary && (
                         <div className="text-[11px] text-blue-300 font-semibold mt-0.5">
-                          <HighlightMatch text={biInfo.secondary} query={intraBoxQuery} />
+                          <HighlightMatch text={biInfo.secondary} query={deferredIntraBoxQuery} />
                         </div>
                       )}
                     </div>
@@ -1324,7 +1857,7 @@ export function App() {
                     <div className="text-[10px] text-slate-400 mb-0.5">رقم السند:</div>
                     <div className="font-mono-num font-bold text-slate-200 truncate flex items-center justify-between">
                       <span className="text-xs">
-                        <HighlightMatch text={file.docNo || '—'} query={intraBoxQuery} />
+                        <HighlightMatch text={file.docNo || '—'} query={deferredIntraBoxQuery} />
                       </span>
                       {file.docNo && file.docNo !== '—' && (
                         <button
@@ -1346,7 +1879,7 @@ export function App() {
                     <div className="text-[10px] text-slate-400 mb-0.5">رقم الشيك:</div>
                     <div className="font-mono-num font-bold text-slate-200 truncate flex items-center justify-between">
                       <span className="text-xs">
-                        <HighlightMatch text={file.checkNo || '—'} query={intraBoxQuery} />
+                        <HighlightMatch text={file.checkNo || '—'} query={deferredIntraBoxQuery} />
                       </span>
                       {file.checkNo && file.checkNo !== '—' && (
                         <button
@@ -1396,26 +1929,32 @@ export function App() {
 
         {/* Toast Notification */}
         {toastMessage && (
-          <div className="no-print fixed bottom-5 left-5 z-50 bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2">
+          <div className="no-print fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] left-4 right-4 sm:right-auto z-50 bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2">
             <Check className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{toastMessage}</span>
           </div>
         )}
 
+        <OfflineIndicator />
+
         {/* Dedicated Print Media Surface */}
-        <PrintSheet
-          mode={printMode}
-          boxes={printMode === 'extraction-plan' ? boxes : yearFilteredBoxes}
-          activeBox={printTargetBox}
-          getBoxUrl={getBoxDirectUrl}
-          suppliersList={filteredSuppliersDirectory}
-        />
+        {isPrinting && (
+          <Suspense fallback={null}>
+            <PrintSheet
+              mode={printMode}
+              boxes={printMode === 'extraction-plan' ? boxes : yearFilteredBoxes}
+              activeBox={printTargetBox}
+              getBoxUrl={getBoxDirectUrl}
+              suppliersList={filteredSuppliersDirectory}
+            />
+          </Suspense>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col lg:flex-row overflow-x-hidden" dir="rtl">
+    <div className="min-h-[100dvh] bg-slate-50 text-slate-900 flex flex-col lg:flex-row overflow-x-hidden" dir="rtl">
       {/* Top Background Sync Shimmer Bar */}
       {isSyncing && <TopSyncBar />}
 
@@ -1432,7 +1971,7 @@ export function App() {
 
       {/* Architectural Dark/Blue RTL Sidebar */}
       <aside
-        className={`no-print fixed lg:sticky top-0 right-0 z-[80] h-screen w-[290px] max-w-[85vw] bg-[#0B1426] text-slate-200 flex flex-col justify-between border-l border-slate-800/90 shadow-2xl shrink-0 transition-transform duration-200 ease-out ${
+        className={`no-print fixed lg:sticky top-0 right-0 z-[80] h-[100dvh] w-[290px] max-w-[85vw] bg-[#0B1426] text-slate-200 flex flex-col justify-between border-l border-slate-800/90 shadow-2xl shrink-0 transition-transform duration-200 ease-out ${
           mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
         }`}
       >
@@ -1467,11 +2006,8 @@ export function App() {
           <div className="p-3.5 space-y-1">
             <button
               type="button"
-              onClick={() => {
-                setActiveSection('dashboard');
-                setMobileSidebarOpen(false);
-              }}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+              onClick={() => switchSection('dashboard')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-all duration-150 active:scale-[0.98] cursor-pointer ${
                 activeSection === 'dashboard'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
@@ -1485,11 +2021,8 @@ export function App() {
 
             <button
               type="button"
-              onClick={() => {
-                setActiveSection('search');
-                setMobileSidebarOpen(false);
-              }}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+              onClick={() => switchSection('search')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-all duration-150 active:scale-[0.98] cursor-pointer ${
                 activeSection === 'search'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
@@ -1504,11 +2037,9 @@ export function App() {
 
             <button
               type="button"
-              onClick={() => {
-                setActiveSection('boxes');
-                setMobileSidebarOpen(false);
-              }}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+              onClick={() => switchSection('boxes')}
+              onMouseEnter={() => prefetchSectionChunk('modals')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-all duration-150 active:scale-[0.98] cursor-pointer ${
                 activeSection === 'boxes'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
@@ -1523,11 +2054,9 @@ export function App() {
 
             <button
               type="button"
-              onClick={() => {
-                setActiveSection('checks-vault');
-                setMobileSidebarOpen(false);
-              }}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+              onClick={() => switchSection('checks-vault')}
+              onMouseEnter={() => prefetchSectionChunk('checks-vault')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-all duration-150 active:scale-[0.98] cursor-pointer ${
                 activeSection === 'checks-vault'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
@@ -1544,11 +2073,9 @@ export function App() {
 
             <button
               type="button"
-              onClick={() => {
-                setActiveSection('qrcodes');
-                setMobileSidebarOpen(false);
-              }}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+              onClick={() => switchSection('qrcodes')}
+              onMouseEnter={() => prefetchSectionChunk('qrcodes')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-all duration-150 active:scale-[0.98] cursor-pointer ${
                 activeSection === 'qrcodes'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
@@ -1562,11 +2089,8 @@ export function App() {
 
             <button
               type="button"
-              onClick={() => {
-                setActiveSection('suppliers');
-                setMobileSidebarOpen(false);
-              }}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+              onClick={() => switchSection('suppliers')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-all duration-150 active:scale-[0.98] cursor-pointer ${
                 activeSection === 'suppliers'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
@@ -1576,16 +2100,15 @@ export function App() {
                 <Building2 className="w-4 h-4 shrink-0" />
                 <span>دليل الموردين الشامل</span>
               </span>
-              <span className="text-xs font-mono-num opacity-80">{suppliersDirectoryList.length}</span>
+              <span className="text-xs font-mono-num opacity-80">
+                {supplierScopeFilter === 'requested' ? MASTER_USER_SUPPLIERS.length : uniqueSuppliersCount}
+              </span>
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                setActiveSection('extraction-plan');
-                setMobileSidebarOpen(false);
-              }}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-colors cursor-pointer ${
+              onClick={() => switchSection('extraction-plan')}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-medium flex items-center justify-between transition-all duration-150 active:scale-[0.98] cursor-pointer ${
                 activeSection === 'extraction-plan'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
@@ -1610,8 +2133,8 @@ export function App() {
             <div className="grid grid-cols-5 gap-1 p-1 bg-slate-900/90 rounded-xl border border-slate-800">
               <button
                 type="button"
-                onClick={() => setYearFilter('all')}
-                className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition-colors text-center ${
+                onClick={() => handleYearFilterChange('all')}
+                className={`py-1.5 px-1 rounded-lg text-[11px] font-medium transition-colors text-center cursor-pointer ${
                   yearFilter === 'all'
                     ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
                     : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -1624,8 +2147,8 @@ export function App() {
                 <button
                   key={yr}
                   type="button"
-                  onClick={() => setYearFilter(yr)}
-                  className={`py-1.5 px-1 rounded-lg text-[11px] font-mono-num font-medium transition-colors text-center ${
+                  onClick={() => handleYearFilterChange(yr)}
+                  className={`py-1.5 px-1 rounded-lg text-[11px] font-mono-num font-medium transition-colors text-center cursor-pointer ${
                     yearFilter === yr
                       ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
                       : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -1695,7 +2218,11 @@ export function App() {
           </div>
 
           {/* Sidebar Footer Actions */}
-          <div className="p-4 border-t border-slate-800/80 space-y-2 bg-[#08101E]">
+          <div className="p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] border-t border-slate-800/80 space-y-2 bg-[#08101E]">
+            <PWAInstallButton
+              variant="sidebar"
+              onInstalled={() => showToast('تم تثبيت تطبيق الأرشيف على هاتفك بنجاح!')}
+            />
             <a
               href={MASTER_PDF_PATH}
               target="_blank"
@@ -1756,10 +2283,7 @@ export function App() {
                       className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"
                       title={`متصل بقاعدة البيانات السحابية - آخر مزامنة: ${lastSyncTime}`}
                     >
-                      <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                      </span>
+                      <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                       <Cloud className="w-3.5 h-3.5 text-emerald-600" />
                       <span className="hidden sm:inline">سحابي متصل</span>
                     </span>
@@ -1785,8 +2309,8 @@ export function App() {
           >
             <button
               type="button"
-              onClick={() => setYearFilter('all')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              onClick={() => handleYearFilterChange('all')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-150 active:scale-[0.98] whitespace-nowrap shrink-0 cursor-pointer ${
                 yearFilter === 'all'
                   ? 'bg-white text-slate-900 shadow-2xs font-semibold'
                   : 'text-slate-600 hover:text-slate-900'
@@ -1798,8 +2322,8 @@ export function App() {
               <button
                 key={yr}
                 type="button"
-                onClick={() => setYearFilter(yr)}
-                className={`px-3 py-1.5 rounded-md text-xs font-mono-num font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                onClick={() => handleYearFilterChange(yr)}
+                className={`px-3 py-1.5 rounded-md text-xs font-mono-num font-medium transition-all duration-150 active:scale-[0.98] whitespace-nowrap shrink-0 cursor-pointer ${
                   yearFilter === yr
                     ? 'bg-white text-blue-700 shadow-2xs font-semibold'
                     : 'text-slate-600 hover:text-slate-900'
@@ -1814,6 +2338,21 @@ export function App() {
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Mobile-Only Action Buttons (Compact icons - Zero overflow!) */}
             <div className="flex sm:hidden items-center gap-1.5">
+              <PWAInstallButton
+                variant="header"
+                onInstalled={() => showToast('تم تثبيت تطبيق الأرشيف على هاتفك بنجاح!')}
+              />
+
+              <button
+                type="button"
+                onClick={() => setIsAiImageScannerOpen(true)}
+                className="w-9 h-9 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 text-white flex items-center justify-center cursor-pointer shadow-xs"
+                title="تصوير فاتورة أو شيك بالكاميرا (AI OCR)"
+                aria-label="فحص فاتورة بالكاميرا"
+              >
+                <Camera className="w-4 h-4" />
+              </button>
+
               <button
                 type="button"
                 onClick={() => setIsFocusedScanMode(true)}
@@ -1837,6 +2376,11 @@ export function App() {
 
             {/* Desktop / Tablet Full Action Buttons */}
             <div className="hidden sm:flex items-center gap-2">
+              <PWAInstallButton
+                variant="header"
+                onInstalled={() => showToast('تم تثبيت تطبيق الأرشيف على جهازك بنجاح!')}
+              />
+
               <button
                 type="button"
                 onClick={() => setIsFocusedScanMode(true)}
@@ -1878,25 +2422,25 @@ export function App() {
           </div>
         </header>
 
-        {/* Mobile Year Filter Strip */}
+        {/* Mobile Year Filter Strip (Dynamic Years) */}
         <div className="no-print md:hidden bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between gap-2 overflow-x-auto">
           <span className="text-xs text-slate-500 whitespace-nowrap shrink-0">السنة المالية:</span>
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => setYearFilter('all')}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap ${
+              onClick={() => handleYearFilterChange('all')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap cursor-pointer transition-colors ${
                 yearFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
               }`}
             >
               الكل
             </button>
-            {AVAILABLE_YEARS.map((yr) => (
+            {dynamicYears.map((yr) => (
               <button
                 key={yr}
                 type="button"
-                onClick={() => setYearFilter(yr)}
-                className={`px-2.5 py-1 rounded-md text-xs font-mono-num font-medium whitespace-nowrap ${
+                onClick={() => handleYearFilterChange(yr)}
+                className={`px-2.5 py-1 rounded-md text-xs font-mono-num font-medium whitespace-nowrap cursor-pointer transition-colors ${
                   yearFilter === yr ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'
                 }`}
               >
@@ -1908,7 +2452,7 @@ export function App() {
 
         {/* Toast Notification */}
         {toastMessage && (
-          <div className="no-print fixed bottom-5 left-5 z-50 bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2">
+          <div className="no-print fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] lg:bottom-5 left-4 right-4 sm:right-auto z-50 bg-slate-900 text-white text-xs font-medium px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2">
             <Check className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{toastMessage}</span>
           </div>
@@ -1995,7 +2539,7 @@ export function App() {
         )}
 
         {/* Main Viewport Sections */}
-        <main className="no-print flex-1 p-4 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto space-y-6 pb-24 lg:pb-8">
+        <main className="no-print flex-1 p-3.5 sm:p-6 lg:p-8 max-w-[1400px] w-full mx-auto space-y-6 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-8">
           {/* =========================================================
               1. DASHBOARD VIEW
              ========================================================= */}
@@ -2011,7 +2555,9 @@ export function App() {
                         الأرشيف الرقمي المعتمد
                       </span>
                       <span className="text-xs text-slate-400">
-                        {yearFilter === 'all' ? 'كافة السنوات المالية (2016 · 2017 · 2019 · 2021)' : `أرشيف معزول لسنة ${yearFilter} فقط`}
+                        {yearFilter === 'all'
+                          ? `كافة السنوات المالية (${dynamicYears.slice().sort((a, b) => a - b).join(' · ')})`
+                          : `أرشيف معزول لسنة ${yearFilter} فقط`}
                       </span>
                     </div>
                     <h2 className="text-xl sm:text-2xl font-bold font-display text-white">
@@ -2032,9 +2578,13 @@ export function App() {
                 </div>
               </div>
 
-              {/* Colored Architectural KPI Stat Cards */}
+              {/* Colored Architectural KPI Stat Cards (Interactive Quick Navigation) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={() => switchSection('boxes')}
+                  className="text-right bg-white border border-slate-200 hover:border-blue-400 rounded-xl p-5 flex items-start justify-between gap-4 transition-all duration-150 active:scale-[0.98] cursor-pointer group"
+                >
                   <div>
                     <div className="text-xs font-medium text-slate-500">
                       {yearFilter === 'all' ? 'إجمالي الصناديق بالأرشيف' : `صناديق سنة ${yearFilter}`}
@@ -2042,59 +2592,78 @@ export function App() {
                     <div className="text-3xl font-extrabold font-mono-num text-slate-900 mt-1.5">
                       {yearFilteredBoxes.length}
                     </div>
-                    <div className="text-xs text-slate-500 mt-2">
-                      {yearFilter === 'all' ? 'جميع الصناديق النشطة لفندق النيل ريتز كارلتون' : `تم عزل صناديق سنة ${yearFilter} بنجاح`}
+                    <div className="text-xs text-slate-500 group-hover:text-blue-600 mt-2 transition-colors">
+                      {yearFilter === 'all' ? 'اضغط لاستعراض جميع الصناديق ←' : `صناديق سنة ${yearFilter} (اضغط للفتح) ←`}
                     </div>
                   </div>
                   <div className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
                     <Boxes className="w-5 h-5" />
                   </div>
-                </div>
+                </button>
 
-                <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={() => switchSection('search')}
+                  className="text-right bg-white border border-slate-200 hover:border-emerald-400 rounded-xl p-5 flex items-start justify-between gap-4 transition-all duration-150 active:scale-[0.98] cursor-pointer group"
+                >
                   <div>
                     <div className="text-xs font-medium text-slate-500">الملفات والظروف المؤرشفة</div>
                     <div className="text-3xl font-extrabold font-mono-num text-slate-900 mt-1.5">
                       {yearFilteredRecords.length}
                     </div>
-                    <div className="text-xs text-slate-500 mt-2">
-                      مستند وظرف مفهرس بأرقام الملفات والشيكات
+                    <div className="text-xs text-slate-500 group-hover:text-emerald-700 mt-2 transition-colors">
+                      اضغط للبحث في السندات والشيكات ←
                     </div>
                   </div>
                   <div className="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
                     <FolderOpen className="w-5 h-5" />
                   </div>
-                </div>
+                </button>
 
-                <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={() => switchSection('suppliers')}
+                  className="text-right bg-white border border-slate-200 hover:border-indigo-400 rounded-xl p-5 flex items-start justify-between gap-4 transition-all duration-150 active:scale-[0.98] cursor-pointer group"
+                >
                   <div>
                     <div className="text-xs font-medium text-slate-500">الموردون والشركات المتعاملة</div>
                     <div className="text-3xl font-extrabold font-mono-num text-slate-900 mt-1.5">
                       {uniqueSuppliersCount}
                     </div>
-                    <div className="text-xs text-slate-500 mt-2">
-                      شركة ومورد مسجل في سجلات الفندق
+                    <div className="text-xs text-slate-500 group-hover:text-indigo-700 mt-2 transition-colors">
+                      اضغط لفتح دليل وتدقيق الموردين ←
                     </div>
                   </div>
                   <div className="w-11 h-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
                     <Building2 className="w-5 h-5" />
                   </div>
-                </div>
+                </button>
 
-                <div className="bg-white border border-slate-200 rounded-xl p-5 flex items-start justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cycleOrder: YearFilter[] = ['all', ...dynamicYears];
+                    const idx = cycleOrder.indexOf(yearFilter);
+                    handleYearFilterChange(cycleOrder[(idx + 1) % cycleOrder.length]);
+                  }}
+                  className="text-right bg-white border border-slate-200 hover:border-amber-400 rounded-xl p-5 flex items-start justify-between gap-4 transition-all duration-150 active:scale-[0.98] cursor-pointer group"
+                  title="اضغط للتبديل السريع بين السنوات المالية"
+                >
                   <div>
                     <div className="text-xs font-medium text-slate-500">السنة المالية المحددة</div>
                     <div className="text-2xl font-extrabold font-mono-num text-amber-600 mt-2">
-                      {yearFilter === 'all' ? '2016 · 2017 · 2019 · 2021' : `سنة ${yearFilter}`}
+                      {yearFilter === 'all'
+                        ? dynamicYears.slice().sort((a, b) => a - b).join(' · ')
+                        : `سنة ${yearFilter}`}
                     </div>
-                    <div className="text-xs text-slate-500 mt-2">
-                      باركود ورموز QR ومطابقة رقمية
+                    <div className="text-xs text-slate-500 group-hover:text-amber-700 mt-2 transition-colors">
+                      اضغط للتبديل السريع بين السنوات ↻
                     </div>
                   </div>
                   <div className="w-11 h-11 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0">
                     <Calendar className="w-5 h-5" />
                   </div>
-                </div>
+                </button>
               </div>
 
               {/* Warehouse Sticker Print Banner for Distant Shelf Visibility */}
@@ -2150,7 +2719,7 @@ export function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setActiveSection('search')}
+                    onClick={() => switchSection('search')}
                     className="text-xs font-semibold text-blue-600 hover:text-blue-800 whitespace-nowrap cursor-pointer"
                   >
                     فتح صفحة البحث المتقدم ←
@@ -2160,11 +2729,20 @@ export function App() {
                 <div className="relative">
                   <Search className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={globalSearchQuery}
                     onChange={(e) => setGlobalSearchQuery(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
+                        const matchedBox = findBoxByBarcode(globalSearchQuery, boxes, false);
+                        if (matchedBox) {
+                          e.preventDefault();
+                          setGlobalSearchQuery('');
+                          setAiSearchResult(null);
+                          openBoxFromBarcode(matchedBox);
+                          return;
+                        }
                         handleTriggerAiSearch();
                       }
                     }}
@@ -2542,11 +3120,20 @@ export function App() {
                 <div className="lg:col-span-7 relative">
                   <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={globalSearchQuery}
                     onChange={(e) => setGlobalSearchQuery(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
+                        const matchedBox = findBoxByBarcode(globalSearchQuery, boxes, false);
+                        if (matchedBox) {
+                          e.preventDefault();
+                          setGlobalSearchQuery('');
+                          setAiSearchResult(null);
+                          openBoxFromBarcode(matchedBox);
+                          return;
+                        }
                         handleTriggerAiSearch();
                       }
                     }}
@@ -2593,13 +3180,15 @@ export function App() {
                   <select
                     value={searchBoxFilter}
                     onChange={(e) =>
-                      setSearchBoxFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
+                      startTransition(() =>
+                        setSearchBoxFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
+                      )
                     }
                     aria-label="تصفية حسب الصندوق"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-800 focus:bg-white focus:outline-none focus:border-blue-600"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-800 focus:bg-white focus:outline-none focus:border-blue-600 cursor-pointer"
                   >
-                    <option value="all">كل الصناديق ({boxes.length} صندوق)</option>
-                    {boxes.map((b) => (
+                    <option value="all">كل الصناديق ({yearFilteredBoxes.length} صندوق)</option>
+                    {yearFilteredBoxes.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.titleAr} ({b.files.length} ملف)
                       </option>
@@ -2611,7 +3200,7 @@ export function App() {
                   <select
                     value={yearFilter}
                     onChange={(e) =>
-                      setYearFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))
+                      handleYearFilterChange(e.target.value === 'all' ? 'all' : Number(e.target.value))
                     }
                     aria-label="تصفية حسب السنة"
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono-num text-slate-800 focus:bg-white focus:outline-none focus:border-blue-600"
@@ -2747,26 +3336,27 @@ export function App() {
                     }}
                     className="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold cursor-pointer"
                   >
-                    عرض جميع السجلات (291)
+                    عرض جميع السجلات ({yearFilteredRecords.length})
                   </button>
                 </div>
               ) : (
-                <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                  <table className="w-full text-right text-sm">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-600">
-                      <tr>
-                        <th className="px-4 py-3 font-semibold whitespace-nowrap">الصندوق</th>
-                        <th className="px-4 py-3 font-semibold whitespace-nowrap">رقم الملف / الظرف</th>
-                        <th className="px-4 py-3 font-semibold">اسم المورد / الشركة / البيان</th>
-                        <th className="px-4 py-3 font-semibold whitespace-nowrap">رقم المستند</th>
-                        <th className="px-4 py-3 font-semibold whitespace-nowrap">الشيك / المرجع</th>
-                        <th className="px-4 py-3 font-semibold whitespace-nowrap">السنة</th>
-                        <th className="px-4 py-3 font-semibold">ملاحظات</th>
-                        <th className="px-4 py-3 font-semibold whitespace-nowrap">إجراءات</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {smartSearchResults.map((rec) => (
+                <div className="space-y-3">
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-right text-sm">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-600">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold whitespace-nowrap">الصندوق</th>
+                          <th className="px-4 py-3 font-semibold whitespace-nowrap">رقم الملف / الظرف</th>
+                          <th className="px-4 py-3 font-semibold">اسم المورد / الشركة / البيان</th>
+                          <th className="px-4 py-3 font-semibold whitespace-nowrap">رقم المستند</th>
+                          <th className="px-4 py-3 font-semibold whitespace-nowrap">الشيك / المرجع</th>
+                          <th className="px-4 py-3 font-semibold whitespace-nowrap">السنة</th>
+                          <th className="px-4 py-3 font-semibold">ملاحظات</th>
+                          <th className="px-4 py-3 font-semibold whitespace-nowrap">إجراءات</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {smartSearchResults.slice(0, visibleSearchLimit).map((rec) => (
                         <tr
                           key={`${rec.boxId}-${rec.fileNo}`}
                           className="hover:bg-blue-50/40 transition-colors"
@@ -2802,9 +3392,9 @@ export function App() {
                           <td className="px-4 py-2.5 font-semibold text-slate-900">
                             <div className="flex items-center gap-1.5">
                               <span>
-                                <HighlightMatch text={rec.supplierName} query={globalSearchQuery} />
+                                <HighlightMatch text={rec.supplierName} query={deferredGlobalSearchQuery} />
                               </span>
-                              {rec._isExactMatch && globalSearchQuery.trim() !== '' && (
+                              {rec._isExactMatch && deferredGlobalSearchQuery.trim() !== '' && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
                                   ★ تطابق تام
                                 </span>
@@ -2814,22 +3404,22 @@ export function App() {
                               const bi = getSupplierBilingualInfo(rec.supplierName);
                               return bi.secondary ? (
                                 <div className="text-[11px] text-blue-600 font-normal">
-                                  <HighlightMatch text={bi.secondary} query={globalSearchQuery} />
+                                  <HighlightMatch text={bi.secondary} query={deferredGlobalSearchQuery} />
                                 </div>
                               ) : null;
                             })()}
                           </td>
                           <td className="px-4 py-2.5 font-mono-num text-xs text-blue-700 whitespace-nowrap">
-                            <HighlightMatch text={rec.docNo} query={globalSearchQuery} />
+                            <HighlightMatch text={rec.docNo} query={deferredGlobalSearchQuery} />
                           </td>
                           <td className="px-4 py-2.5 font-mono-num text-xs text-slate-700 whitespace-nowrap">
-                            <HighlightMatch text={rec.checkNo} query={globalSearchQuery} />
+                            <HighlightMatch text={rec.checkNo} query={deferredGlobalSearchQuery} />
                           </td>
                           <td className="px-4 py-2.5 font-mono-num text-xs text-slate-600 whitespace-nowrap">
                             {rec.year}
                           </td>
                           <td className="px-4 py-2.5 text-xs text-slate-500 max-w-xs truncate">
-                            <HighlightMatch text={rec.notes || ''} query={globalSearchQuery} />
+                            <HighlightMatch text={rec.notes || ''} query={deferredGlobalSearchQuery} />
                           </td>
                           <td className="px-4 py-2.5 whitespace-nowrap">
                             <div className="flex items-center gap-2">
@@ -2843,7 +3433,7 @@ export function App() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const b = ARCHIVE_BOXES.find((x) => x.id === rec.boxId);
+                                  const b = boxes.find((x) => x.id === rec.boxId);
                                   if (b) setQrModalBox(b);
                                 }}
                                 className="p-1 text-slate-400 hover:text-blue-600 cursor-pointer"
@@ -2858,6 +3448,19 @@ export function App() {
                     </tbody>
                   </table>
                 </div>
+                {smartSearchResults.length > visibleSearchLimit && (
+                  <div className="flex items-center justify-center pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setVisibleSearchLimit((prev) => prev + 80)}
+                      className="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-blue-50 text-slate-800 hover:text-blue-700 border border-slate-300 text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      عرض المزيد ({Math.min(80, smartSearchResults.length - visibleSearchLimit)} سجل إضافي من أصل{' '}
+                      {smartSearchResults.length})
+                    </button>
+                  </div>
+                )}
+              </div>
               )}
             </section>
           )}
@@ -2925,13 +3528,67 @@ export function App() {
                 {/* Box Header + Quick QR/Barcode Preview */}
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 pb-5 border-b border-slate-200">
                   <div className="space-y-1.5">
-                    <div className="text-xs font-mono-num text-blue-700 font-semibold">
-                      {activeBox.code} · {activeBox.barcodeValue} · السنة المالية{' '}
-                      {activeBox.years.join(' / ')}
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-mono-num text-blue-700 font-semibold">
+                      <span>
+                        {activeBox.code} · {activeBox.barcodeValue} · السنة المالية {activeBox.years.join(' / ')}
+                      </span>
+                      {(() => {
+                        const checkedCount = activeBox.files.filter((f) => f.isChecked).length;
+                        if (checkedCount === 0) return null;
+                        return (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 text-[11px] font-bold">
+                            تم التعليم: {checkedCount} / {activeBox.files.length}
+                          </span>
+                        );
+                      })()}
                     </div>
-                    <h2 className="font-display font-extrabold text-xl sm:text-2xl text-slate-900">
-                      {activeBox.titleAr} — {activeBox.subtitleAr}
-                    </h2>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <h2 className="font-display font-extrabold text-xl sm:text-2xl text-slate-900">
+                        {activeBox.titleAr} — {activeBox.subtitleAr}
+                      </h2>
+                      {/* Quick Prev / Next Box Stepper */}
+                      {boxes.length > 1 && (() => {
+                        const curIdx = boxes.findIndex((b) => b.id === activeBox.id);
+                        const prevBox = curIdx > 0 ? boxes[curIdx - 1] : null;
+                        const nextBox = curIdx >= 0 && curIdx < boxes.length - 1 ? boxes[curIdx + 1] : null;
+                        return (
+                          <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              disabled={!prevBox}
+                              onClick={() => prevBox && navigateToBox(prevBox.id)}
+                              className="p-1 rounded-md text-slate-600 hover:bg-white hover:text-blue-700 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                              title={prevBox ? `الصندوق السابق: ${prevBox.titleAr}` : 'أول صندوق'}
+                              aria-label="الصندوق السابق"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                            <select
+                              value={activeBox.id}
+                              onChange={(e) => navigateToBox(Number(e.target.value))}
+                              aria-label="الانتقال السريع لصندوق"
+                              className="bg-transparent text-xs font-bold text-slate-800 px-1 py-0.5 focus:outline-none cursor-pointer"
+                            >
+                              {boxes.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  {b.titleAr} ({b.files.length})
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              disabled={!nextBox}
+                              onClick={() => nextBox && navigateToBox(nextBox.id)}
+                              className="p-1 rounded-md text-slate-600 hover:bg-white hover:text-blue-700 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                              title={nextBox ? `الصندوق التالي: ${nextBox.titleAr}` : 'آخر صندوق'}
+                              aria-label="الصندوق التالي"
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
                     <p className="text-xs sm:text-sm text-slate-600">
                       التصنيف: {activeBox.categoryScope} · عدد الملفات والظروف المؤرشفة:{' '}
                       <strong className="font-mono-num text-slate-900">
@@ -3006,6 +3663,18 @@ export function App() {
                         <FileText className="w-4 h-4 shrink-0" />
                         <span>كشف المحتويات</span>
                       </button>
+
+                      {reconcileBoxWithMaster(activeBox, undefined, true).changed && (
+                        <button
+                          type="button"
+                          onClick={() => handleSyncActiveBoxMaster(activeBox)}
+                          className="col-span-2 sm:col-span-1 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shadow-xs"
+                          title="استيراد ومزامنة الموردين المرجعيين الناقصين لهذا الصندوق"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                          <span>استكمال ملفات الصندوق</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -3015,6 +3684,7 @@ export function App() {
                   <div className="relative flex-1">
                     <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
+                      ref={intraSearchInputRef}
                       type="text"
                       value={intraBoxQuery}
                       onChange={(e) => {
@@ -3162,6 +3832,7 @@ export function App() {
                       return (
                         <div
                           key={`${row.boxId}-${row.fileNo}`}
+                          data-box-file={`${row.boxId}-${row.fileNo}`}
                           className={`rounded-2xl border transition-all p-4 space-y-3 relative flex flex-col justify-between ${
                             row.isChecked
                               ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-50/40 shadow-xs'
@@ -3182,7 +3853,7 @@ export function App() {
                               <button
                                 type="button"
                                 onClick={() => handleToggleRecordCheck(row.boxId, row.fileNo)}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer active:scale-[0.97] ${
                                   row.isChecked
                                     ? 'bg-emerald-600 text-white shadow-xs'
                                     : 'bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-800'
@@ -3196,18 +3867,47 @@ export function App() {
                                 <button
                                   type="button"
                                   onClick={() => navigateToBox(row.boxId, row.fileNo)}
-                                  className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded hover:bg-blue-100 hover:text-blue-700 transition-colors"
+                                  className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded hover:bg-blue-100 hover:text-blue-700 transition-colors cursor-pointer"
                                 >
                                   {row.boxTitle}
                                 </button>
                               )}
                             </div>
-                            <span className="text-[11px] font-mono-num text-slate-400">
-                              ملف #{row.fileNo}
-                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setRecordToEdit({
+                                    boxId: row.boxId,
+                                    boxTitle: row.boxTitle,
+                                    record: {
+                                      fileNo: row.fileNo,
+                                      envelopeLabel: row.envelopeLabel,
+                                      supplierName: row.supplierName,
+                                      docNo: row.docNo,
+                                      checkNo: row.checkNo,
+                                      year: row.year,
+                                      notes: row.notes,
+                                      amountEgp: row.amountEgp,
+                                      isChecked: row.isChecked,
+                                    },
+                                  })
+                                }
+                                title="تعديل بيانات هذا المورد"
+                                className="w-7 h-7 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRecord(row.boxId, row.fileNo)}
+                                title="حذف هذا المورد من الصندوق"
+                                className="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
-
-
 
                           {/* Supplier Name - Bold & High Contrast with Bilingual Display */}
                           <div className="space-y-1">
@@ -3216,9 +3916,9 @@ export function App() {
                             </span>
                             <h2 className="font-display font-extrabold text-base sm:text-lg text-slate-900 leading-snug break-words flex items-center justify-between gap-2">
                               <span>
-                                <HighlightMatch text={row.supplierName} query={intraBoxQuery} />
+                                <HighlightMatch text={row.supplierName} query={deferredIntraBoxQuery} />
                               </span>
-                              {row._isExactMatch && intraBoxQuery.trim() !== '' && (
+                              {row._isExactMatch && deferredIntraBoxQuery.trim() !== '' && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
                                   ★ تطابق تام
                                 </span>
@@ -3230,7 +3930,7 @@ export function App() {
                                 <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 text-xs font-semibold border border-blue-200/60 mt-0.5">
                                   <span className="text-[10px] text-blue-500 font-normal">الاسم المترجم:</span>
                                   <span>
-                                    <HighlightMatch text={bi.secondary} query={intraBoxQuery} />
+                                    <HighlightMatch text={bi.secondary} query={deferredIntraBoxQuery} />
                                   </span>
                                 </div>
                               ) : null;
@@ -3245,7 +3945,7 @@ export function App() {
                                   رقم المستند
                                 </span>
                                 <span className="font-mono-num text-xs font-bold text-blue-800 truncate block">
-                                  <HighlightMatch text={row.docNo} query={intraBoxQuery} />
+                                  <HighlightMatch text={row.docNo} query={deferredIntraBoxQuery} />
                                 </span>
                               </div>
                               {row.docNo !== '—' && (
@@ -3269,7 +3969,7 @@ export function App() {
                                   رقم الشيك
                                 </span>
                                 <span className="font-mono-num text-xs font-bold text-slate-700 truncate block">
-                                  <HighlightMatch text={row.checkNo} query={intraBoxQuery} />
+                                  <HighlightMatch text={row.checkNo} query={deferredIntraBoxQuery} />
                                 </span>
                               </div>
                               {row.checkNo !== '—' && (
@@ -3338,6 +4038,7 @@ export function App() {
                           return (
                             <tr
                               key={`${row.boxId}-${row.fileNo}`}
+                              data-box-file={`${row.boxId}-${row.fileNo}`}
                               className={`transition-colors ${
                                 row.isChecked
                                   ? 'bg-emerald-50/80 hover:bg-emerald-100/70 font-medium text-emerald-950'
@@ -3376,9 +4077,9 @@ export function App() {
                               <td className="px-4 py-2.5 font-semibold text-slate-900">
                                 <div className="flex items-center gap-1.5">
                                   <span>
-                                    <HighlightMatch text={row.supplierName} query={intraBoxQuery} />
+                                    <HighlightMatch text={row.supplierName} query={deferredIntraBoxQuery} />
                                   </span>
-                                  {row._isExactMatch && intraBoxQuery.trim() !== '' && (
+                                  {row._isExactMatch && deferredIntraBoxQuery.trim() !== '' && (
                                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
                                       ★ تطابق تام
                                     </span>
@@ -3388,22 +4089,22 @@ export function App() {
                                   const bi = getSupplierBilingualInfo(row.supplierName);
                                   return bi.secondary ? (
                                     <div className="text-[11px] text-blue-600 font-normal">
-                                      <HighlightMatch text={bi.secondary} query={intraBoxQuery} />
+                                      <HighlightMatch text={bi.secondary} query={deferredIntraBoxQuery} />
                                     </div>
                                   ) : null;
                                 })()}
                               </td>
                               <td className="px-4 py-2.5 font-mono-num text-xs text-blue-700 whitespace-nowrap">
-                                <HighlightMatch text={row.docNo} query={intraBoxQuery} />
+                                <HighlightMatch text={row.docNo} query={deferredIntraBoxQuery} />
                               </td>
                               <td className="px-4 py-2.5 font-mono-num text-xs text-slate-700 whitespace-nowrap">
-                                <HighlightMatch text={row.checkNo} query={intraBoxQuery} />
+                                <HighlightMatch text={row.checkNo} query={deferredIntraBoxQuery} />
                               </td>
                               <td className="px-4 py-2.5 font-mono-num text-xs text-slate-600 whitespace-nowrap">
                                 {row.year}
                               </td>
                               <td className="px-4 py-2.5 text-xs text-slate-500">
-                                <HighlightMatch text={row.notes || ''} query={intraBoxQuery} />
+                                <HighlightMatch text={row.notes || ''} query={deferredIntraBoxQuery} />
                               </td>
                               <td className="px-3 py-2 text-center whitespace-nowrap">
                                 <div className="flex items-center justify-center gap-1.5">
@@ -3434,6 +4135,8 @@ export function App() {
                                           checkNo: row.checkNo,
                                           year: row.year,
                                           notes: row.notes,
+                                          amountEgp: row.amountEgp,
+                                          isChecked: row.isChecked,
                                         },
                                       })
                                     }
@@ -3467,16 +4170,22 @@ export function App() {
               3.5 GENERAL SUPPLIER CHECKS & INVOICES VAULT (مخزن شيكات وفواتير الموردين العمومي)
              ========================================================= */}
           {activeSection === 'checks-vault' && (
-            <ChecksVaultView
-              boxes={boxes}
-              onAddRecord={handleAddSingleRecord}
-              onUpdateRecord={handleUpdateRecord}
-              onDeleteRecord={handleDeleteRecord}
-              onNavigateToBox={navigateToBox}
-              onOpenAiScanner={() => setIsAiImageScannerOpen(true)}
-              showToast={showToast}
-              yearFilter={yearFilter}
-            />
+            <Suspense fallback={<FileRowSkeleton />}>
+              <ChecksVaultView
+                boxes={boxes}
+                onAddRecord={handleAddSingleRecord}
+                onUpdateRecord={handleUpdateRecord}
+                onDeleteRecord={handleDeleteRecord}
+                onToggleCheck={handleToggleRecordCheck}
+                onEditRecord={(boxId, boxTitle, record) =>
+                  setRecordToEdit({ boxId, boxTitle, record })
+                }
+                onNavigateToBox={navigateToBox}
+                onOpenAiScanner={() => setIsAiImageScannerOpen(true)}
+                showToast={showToast}
+                yearFilter={yearFilter}
+              />
+            </Suspense>
           )}
 
           {/* =========================================================
@@ -3561,14 +4270,18 @@ export function App() {
                           className="shrink-0 p-1.5 border border-slate-200 rounded-xl bg-white hover:border-blue-400 transition-colors cursor-pointer"
                           title="تكبير ومعاينة الملصق"
                         >
-                          <BoxQrCode value={directUrl} size={96} />
+                          <Suspense fallback={<div className="w-24 h-24 bg-slate-100 rounded-lg animate-pulse" />}>
+                            <BoxQrCode value={directUrl} size={96} />
+                          </Suspense>
                         </button>
                       </div>
 
                       {/* 1D Barcode */}
                       <div className="py-2.5 px-3 bg-slate-50/70 border border-slate-200/80 rounded-xl flex justify-center">
                         <div className="w-full max-w-[220px]">
-                          <Code128Barcode value={box.barcodeValue} height={38} />
+                          <Suspense fallback={<div className="h-9 w-full bg-slate-200/70 rounded animate-pulse" />}>
+                            <Code128Barcode value={box.barcodeValue} height={38} />
+                          </Suspense>
                         </div>
                       </div>
 
@@ -3635,7 +4348,7 @@ export function App() {
                       مطابقة وتدقيق الأرشيف
                     </span>
                     <span className="text-xs text-slate-500 font-medium">
-                      الصناديق من 1 إلى 13
+                      الصناديق من 1 إلى {boxes.length}
                     </span>
                   </div>
                   <h2 className="font-display font-black text-xl sm:text-2xl text-slate-950">
@@ -3695,7 +4408,7 @@ export function App() {
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                       <span>متواجدون بالصناديق</span>
                     </span>
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-200 animate-pulse" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-200" />
                   </div>
                   <div className="mt-2 flex items-baseline gap-2">
                     <span className="text-2xl sm:text-3xl font-black font-mono-num text-emerald-700">
@@ -3884,8 +4597,9 @@ export function App() {
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {filteredSuppliersDirectory.map((item, idx) => {
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {filteredSuppliersDirectory.slice(0, visibleSuppliersLimit).map((item, idx) => {
                     const isFound = item.isFound;
 
                     return (
@@ -4008,6 +4722,19 @@ export function App() {
                       </div>
                     );
                   })}
+                  </div>
+                  {filteredSuppliersDirectory.length > visibleSuppliersLimit && (
+                    <div className="flex items-center justify-center pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setVisibleSuppliersLimit((prev) => prev + 60)}
+                        className="px-5 py-2.5 rounded-xl bg-white hover:bg-blue-50 text-slate-800 hover:text-blue-700 border border-slate-300 text-xs font-bold cursor-pointer transition-colors shadow-2xs"
+                      >
+                        عرض المزيد ({Math.min(60, filteredSuppliersDirectory.length - visibleSuppliersLimit)} مورد إضافي من أصل{' '}
+                        {filteredSuppliersDirectory.length})
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -4026,7 +4753,7 @@ export function App() {
                       خطة الاستخراج والتدقيق لكل صندوق
                     </span>
                     <span className="text-xs text-slate-500 font-medium">
-                      الصناديق من 1 إلى 13 بناءً على القائمة الرئيسية
+                      الصناديق من 1 إلى {boxes.length} بناءً على القائمة الرئيسية
                     </span>
                   </div>
                   <h2 className="font-display font-black text-xl sm:text-2xl text-slate-950">
@@ -4270,27 +4997,37 @@ export function App() {
                       قائمة الموردين المتبقين المطلوب البحث عنهم واستكمالهم
                     </h3>
                     <p className="text-xs text-slate-600">
-                      هؤلاء الموردون واردون في الكشف المرجعي العام لكن لم يتم العثور على أي ملف لهم داخل صناديق الأرشيف الحالية ({boxes.length} صندوق لسنوات 2016، 2017، 2019، 2021).
+                      هؤلاء الموردون واردون في الكشف المرجعي العام لكن لم يتم العثور على أي ملف لهم داخل صناديق الأرشيف الحالية ({boxes.length} صندوق لسنوات {dynamicYears.slice().sort((a, b) => a - b).join('، ')}).
                     </p>
                   </div>
 
-                  <div className="w-full sm:w-64">
+                  <div className="w-full sm:w-64 relative">
                     <input
                       type="text"
                       value={missingSuppliersSearch}
                       onChange={(e) => setMissingSuppliersSearch(e.target.value)}
                       placeholder="ابحث في الموردين المفقودين..."
-                      className="w-full px-3 py-1.5 bg-white border border-rose-200 rounded-xl text-xs focus:outline-none focus:border-rose-400"
+                      className="w-full pr-3 pl-8 py-1.5 bg-white border border-rose-200 rounded-xl text-xs focus:outline-none focus:border-rose-400"
                     />
+                    {missingSuppliersSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setMissingSuppliersSearch('')}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
+                        aria-label="مسح البحث"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {missingMasterSuppliers
                     .filter((s) => {
-                      if (!missingSuppliersSearch.trim()) return true;
-                      const q = missingSuppliersSearch.trim().toLowerCase();
-                      return s.name.toLowerCase().includes(q) || (s.secondary && s.secondary.includes(q));
+                      if (!deferredMissingSuppliersSearch.trim()) return true;
+                      const q = deferredMissingSuppliersSearch.trim().toLowerCase();
+                      return s.name.toLowerCase().includes(q) || (s.secondary && s.secondary.toLowerCase().includes(q));
                     })
                     .map((s, idx) => (
                       <div
@@ -4351,18 +5088,18 @@ export function App() {
             Quick 1-thumb navigation between main sections on mobile
            ========================================================= */}
         <nav
-          className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex items-center justify-around shadow-lg"
+          className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] flex items-center justify-around shadow-lg"
           aria-label="شريط التنقل السريع للهاتف"
         >
           <button
             type="button"
             onClick={() => {
-              setActiveSection('dashboard');
+              switchSection('dashboard');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
+            className={`min-h-[44px] min-w-[52px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-all active:scale-95 cursor-pointer ${
               activeSection === 'dashboard'
-                ? 'text-blue-600'
+                ? 'text-blue-600 bg-blue-50/70'
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
@@ -4373,12 +5110,12 @@ export function App() {
           <button
             type="button"
             onClick={() => {
-              setActiveSection('search');
+              switchSection('search');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
+            className={`min-h-[44px] min-w-[52px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-all active:scale-95 cursor-pointer ${
               activeSection === 'search'
-                ? 'text-blue-600'
+                ? 'text-blue-600 bg-blue-50/70'
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
@@ -4389,12 +5126,12 @@ export function App() {
           <button
             type="button"
             onClick={() => {
-              setActiveSection('boxes');
+              switchSection('boxes');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
+            className={`min-h-[44px] min-w-[52px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-all active:scale-95 cursor-pointer ${
               activeSection === 'boxes'
-                ? 'text-blue-600'
+                ? 'text-blue-600 bg-blue-50/70'
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
@@ -4405,12 +5142,12 @@ export function App() {
           <button
             type="button"
             onClick={() => {
-              setActiveSection('checks-vault');
+              switchSection('checks-vault');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
+            className={`min-h-[44px] min-w-[52px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-all active:scale-95 cursor-pointer ${
               activeSection === 'checks-vault'
-                ? 'text-blue-600'
+                ? 'text-blue-600 bg-blue-50/70'
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
@@ -4421,12 +5158,12 @@ export function App() {
           <button
             type="button"
             onClick={() => {
-              setActiveSection('qrcodes');
+              switchSection('qrcodes');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className={`flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-colors cursor-pointer ${
+            className={`min-h-[44px] min-w-[52px] flex flex-col items-center justify-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-xl transition-all active:scale-95 cursor-pointer ${
               activeSection === 'qrcodes'
-                ? 'text-blue-600'
+                ? 'text-blue-600 bg-blue-50/70'
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
@@ -4434,96 +5171,110 @@ export function App() {
             <span>رموز QR</span>
           </button>
         </nav>
+
+        <OfflineIndicator />
       </div>
 
-      {/* QR & Barcode Preview Modal */}
-      <QrModal
-        box={qrModalBox}
-        onClose={() => setQrModalBox(null)}
-        getBoxUrl={getBoxDirectUrl}
-        onPrintSingle={(boxId) => triggerPrint('single-sticker', boxId)}
-        onOpenBox={(boxId) => navigateToBox(boxId)}
-      />
+      {/* Lazy-Loaded Modals & Print Surface (only loaded/mounted when actually opened) */}
+      <Suspense fallback={null}>
+        {qrModalBox && (
+          <QrModal
+            box={qrModalBox}
+            onClose={() => setQrModalBox(null)}
+            getBoxUrl={getBoxDirectUrl}
+            onPrintSingle={(boxId) => triggerPrint('single-sticker', boxId)}
+            onOpenBox={(boxId) => navigateToBox(boxId)}
+          />
+        )}
 
-      {/* Create New Box Modal with Smart Paste */}
-      <CreateBoxModal
-        isOpen={isCreateBoxModalOpen}
-        onClose={() => setIsCreateBoxModalOpen(false)}
-        nextBoxId={nextBoxId}
-        onCreateBox={handleCreateBox}
-      />
+        {isCreateBoxModalOpen && (
+          <CreateBoxModal
+            isOpen={isCreateBoxModalOpen}
+            onClose={() => setIsCreateBoxModalOpen(false)}
+            nextBoxId={nextBoxId}
+            onCreateBox={handleCreateBox}
+          />
+        )}
 
-      {/* Batch Add Suppliers to Active Box Modal */}
-      <BatchAddSuppliersModal
-        isOpen={isBatchAddModalOpen}
-        onClose={() => setIsBatchAddModalOpen(false)}
-        targetBox={activeBox}
-        onAddSuppliers={handleBatchAddSuppliers}
-      />
+        {isBatchAddModalOpen && (
+          <BatchAddSuppliersModal
+            isOpen={isBatchAddModalOpen}
+            onClose={() => setIsBatchAddModalOpen(false)}
+            targetBox={activeBox}
+            onAddSuppliers={handleBatchAddSuppliers}
+          />
+        )}
 
-      {/* Edit Box Metadata Modal */}
-      <EditBoxModal
-        isOpen={boxToEdit !== null}
-        onClose={() => setBoxToEdit(null)}
-        box={boxToEdit}
-        onSave={handleUpdateBox}
-        onDelete={handleDeleteBox}
-        totalBoxesCount={boxes.length}
-      />
+        {boxToEdit !== null && (
+          <EditBoxModal
+            isOpen={boxToEdit !== null}
+            onClose={() => setBoxToEdit(null)}
+            box={boxToEdit}
+            onSave={handleUpdateBox}
+            onDelete={handleDeleteBox}
+            totalBoxesCount={boxes.length}
+          />
+        )}
 
-      {/* Edit File / Supplier Record Modal */}
-      <EditFileRecordModal
-        isOpen={recordToEdit !== null}
-        onClose={() => setRecordToEdit(null)}
-        record={recordToEdit?.record || null}
-        boxTitle={recordToEdit?.boxTitle || ''}
-        onSave={(updated) => {
-          if (recordToEdit) {
-            handleUpdateRecord(recordToEdit.boxId, updated);
-          }
-        }}
-      />
+        {recordToEdit !== null && (
+          <EditFileRecordModal
+            isOpen={recordToEdit !== null}
+            onClose={() => setRecordToEdit(null)}
+            record={recordToEdit?.record || null}
+            boxTitle={recordToEdit?.boxTitle || ''}
+            onSave={(updated) => {
+              if (recordToEdit) {
+                handleUpdateRecord(recordToEdit.boxId, updated);
+              }
+            }}
+          />
+        )}
 
-      {/* Add Single Supplier Modal */}
-      <AddSingleSupplierModal
-        isOpen={isAddSingleModalOpen}
-        onClose={() => {
-          setIsAddSingleModalOpen(false);
-          setPrefilledSupplierName('');
-        }}
-        targetBox={activeBox}
-        initialSupplierName={prefilledSupplierName}
-        onAdd={(newRec) => {
-          handleAddSingleRecord(activeBox.id, newRec);
-          setPrefilledSupplierName('');
-        }}
-      />
+        {isAddSingleModalOpen && (
+          <AddSingleSupplierModal
+            isOpen={isAddSingleModalOpen}
+            onClose={() => {
+              setIsAddSingleModalOpen(false);
+              setPrefilledSupplierName('');
+            }}
+            targetBox={activeBox}
+            initialSupplierName={prefilledSupplierName}
+            onAdd={(newRec) => {
+              handleAddSingleRecord(activeBox.id, newRec);
+              setPrefilledSupplierName('');
+            }}
+          />
+        )}
 
-      {/* AI Settings Modal */}
-      <AiSettingsModal
-        isOpen={isAiSettingsModalOpen}
-        onClose={() => setIsAiSettingsModalOpen(false)}
-        onSaveToast={(msg) => showToast(msg)}
-      />
+        {isAiSettingsModalOpen && (
+          <AiSettingsModal
+            isOpen={isAiSettingsModalOpen}
+            onClose={() => setIsAiSettingsModalOpen(false)}
+            onSaveToast={(msg) => showToast(msg)}
+          />
+        )}
 
-      {/* AI Image Scanner / OCR Modal */}
-      <AiImageScannerModal
-        isOpen={isAiImageScannerOpen}
-        onClose={() => setIsAiImageScannerOpen(false)}
-        boxes={boxes}
-        onAddRecordToBox={handleAiAddRecord}
-        onNavigateToBox={navigateToBox}
-        showToast={showToast}
-      />
+        {isAiImageScannerOpen && (
+          <AiImageScannerModal
+            isOpen={isAiImageScannerOpen}
+            onClose={() => setIsAiImageScannerOpen(false)}
+            boxes={boxes}
+            onAddRecordToBox={handleAiAddRecord}
+            onNavigateToBox={navigateToBox}
+            showToast={showToast}
+          />
+        )}
 
-      {/* Dedicated Print Media Surface */}
-      <PrintSheet
-        mode={printMode}
-        boxes={printMode === 'extraction-plan' ? boxes : yearFilteredBoxes}
-        activeBox={printTargetBox}
-        getBoxUrl={getBoxDirectUrl}
-        suppliersList={filteredSuppliersDirectory}
-      />
+        {isPrinting && (
+          <PrintSheet
+            mode={printMode}
+            boxes={printMode === 'extraction-plan' ? boxes : yearFilteredBoxes}
+            activeBox={printTargetBox}
+            getBoxUrl={getBoxDirectUrl}
+            suppliersList={filteredSuppliersDirectory}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db, auth, testFirestoreConnection } from '../lib/firebase';
-import { ArchiveBox, ARCHIVE_BOXES } from '../data/archiveData';
+import { ArchiveBox, ArchiveFileRecord, ARCHIVE_BOXES } from '../data/archiveData';
 
 export enum OperationType {
   CREATE = 'create',
@@ -59,9 +59,96 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 const BOXES_COLLECTION = 'boxes';
 const LOCAL_STORAGE_KEY = 'smart_docs_boxes_data_v1';
+const LOCAL_RECONCILE_FLAG = 'smart_docs_master_sync_v4';
+const MASTER_RECONCILE_CUTOFF_ISO = '2026-11-14T13:00:00.000Z';
+
+function stripUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedDeep(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v !== undefined) {
+        out[k] = stripUndefinedDeep(v);
+      }
+    }
+    return out as T;
+  }
+  return value;
+}
 
 export function getBoxDocId(boxId: number): string {
   return `box_${boxId}`;
+}
+
+function makeRecordKey(rec: ArchiveFileRecord): string {
+  const sup = (rec.supplierName || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const docNo = (rec.docNo || '—').toLowerCase().replace(/\s+/g, '').trim();
+  return `${sup}|${docNo}`;
+}
+
+export function reconcileBoxWithMaster(
+  storedBox: ArchiveBox,
+  rawUpdatedAt?: string,
+  forceMerge = false
+): { box: ArchiveBox; changed: boolean } {
+  const master = ARCHIVE_BOXES.find((m) => m.id === storedBox.id);
+  if (!master || master.files.length === 0) {
+    return { box: storedBox, changed: false };
+  }
+
+  // Case A: Stored box exists in Firestore/localStorage with 0 files -> hydrate completely from master
+  if (storedBox.files.length === 0) {
+    const mergedYears = Array.from(new Set([...(storedBox.years || []), ...master.years]));
+    return {
+      box: {
+        ...storedBox,
+        subtitleAr: storedBox.subtitleAr || master.subtitleAr,
+        categoryScope:
+          !storedBox.categoryScope || storedBox.categoryScope === 'أرشيف عام'
+            ? master.categoryScope
+            : storedBox.categoryScope,
+        years: mergedYears.length > 0 ? mergedYears : master.years,
+        files: master.files.map((f) => ({ ...f })),
+      },
+      changed: true,
+    };
+  }
+
+  // Case B: One-time reconciliation for older documents saved before master data was completed
+  const isOlderThanMasterUpdate = !rawUpdatedAt || rawUpdatedAt < MASTER_RECONCILE_CUTOFF_ISO;
+  if (!forceMerge && !isOlderThanMasterUpdate) {
+    return { box: storedBox, changed: false };
+  }
+
+  const existingKeys = new Set(storedBox.files.map(makeRecordKey));
+  const missingMasterFiles = master.files.filter((mf) => !existingKeys.has(makeRecordKey(mf)));
+
+  if (missingMasterFiles.length === 0) {
+    return { box: storedBox, changed: false };
+  }
+
+  let nextFileNo = storedBox.files.reduce((max, f) => Math.max(max, f.fileNo || 0), 0);
+  const appendedFiles = missingMasterFiles.map((mf) => {
+    nextFileNo += 1;
+    return {
+      ...mf,
+      fileNo: nextFileNo,
+    };
+  });
+
+  const mergedYears = Array.from(new Set([...(storedBox.years || []), ...master.years]));
+
+  return {
+    box: {
+      ...storedBox,
+      years: mergedYears.length > 0 ? mergedYears : master.years,
+      categoryScope: master.categoryScope || storedBox.categoryScope,
+      files: [...storedBox.files, ...appendedFiles],
+    },
+    changed: true,
+  };
 }
 
 /**
@@ -83,16 +170,22 @@ export function sanitizeArchiveBox(raw: any, fallbackId: number): ArchiveBox {
       : safeYears[0] || masterFallback?.primaryYear || 2017;
 
   const rawFiles = Array.isArray(raw?.files) ? raw.files : masterFallback?.files || [];
-  const safeFiles = rawFiles.map((f: any, idx: number) => ({
-    fileNo: typeof f?.fileNo === 'number' ? f.fileNo : idx + 1,
-    envelopeLabel: String(f?.envelopeLabel || `الظرف ${idx + 1}`),
-    supplierName: String(f?.supplierName || 'غير محدد'),
-    docNo: String(f?.docNo || '—'),
-    checkNo: String(f?.checkNo || '—'),
-    year: typeof f?.year === 'number' ? f.year : safePrimaryYear,
-    notes: String(f?.notes || ''),
-    amountEgp: typeof f?.amountEgp === 'number' ? f.amountEgp : undefined,
-  }));
+  const safeFiles: ArchiveFileRecord[] = rawFiles.map((f: any, idx: number) => {
+    const rec: ArchiveFileRecord = {
+      fileNo: typeof f?.fileNo === 'number' ? f.fileNo : idx + 1,
+      envelopeLabel: String(f?.envelopeLabel || `الظرف ${idx + 1}`),
+      supplierName: String(f?.supplierName || 'غير محدد'),
+      docNo: String(f?.docNo || '—'),
+      checkNo: String(f?.checkNo || '—'),
+      year: typeof f?.year === 'number' ? f.year : safePrimaryYear,
+      notes: String(f?.notes || ''),
+      isChecked: Boolean(f?.isChecked),
+    };
+    if (typeof f?.amountEgp === 'number' && Number.isFinite(f.amountEgp)) {
+      rec.amountEgp = f.amountEgp;
+    }
+    return rec;
+  });
 
   return {
     id,
@@ -121,7 +214,7 @@ export function cacheBoxesLocally(boxes: ArchiveBox[]): void {
 }
 
 /**
- * Read cached boxes from localStorage if available with sanitization
+ * Read cached boxes from localStorage if available with sanitization and master reconciliation
  */
 export function getLocalCachedBoxes(): ArchiveBox[] {
   try {
@@ -130,14 +223,33 @@ export function getLocalCachedBoxes(): ArchiveBox[] {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const cachedBoxes = parsed.map((b: any, idx: number) => sanitizeArchiveBox(b, idx + 1));
+          const needsOneTimeLocalReconcile = !localStorage.getItem(LOCAL_RECONCILE_FLAG);
+          let mutated = false;
+
+          const cachedBoxes = parsed.map((b: any, idx: number) => {
+            const sanitized = sanitizeArchiveBox(b, idx + 1);
+            const updatedAt = typeof b?.updatedAt === 'string' ? b.updatedAt : undefined;
+            const reconciled = reconcileBoxWithMaster(
+              sanitized,
+              updatedAt,
+              needsOneTimeLocalReconcile
+            );
+            if (reconciled.changed) mutated = true;
+            return reconciled.box;
+          });
+
           const existingIds = new Set(cachedBoxes.map((b) => b.id));
           const missing = ARCHIVE_BOXES.filter((b) => !existingIds.has(b.id));
           if (missing.length > 0) {
             cachedBoxes.push(...missing);
+            mutated = true;
+          }
+
+          if (mutated || needsOneTimeLocalReconcile) {
             cachedBoxes.sort((a, b) => a.id - b.id);
             try {
               localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(cachedBoxes));
+              localStorage.setItem(LOCAL_RECONCILE_FLAG, 'done');
             } catch {
               // ignore
             }
@@ -178,27 +290,56 @@ export function subscribeToFirestoreBoxes(
         return;
       }
 
-      const loadedBoxes: ArchiveBox[] = [];
+      const boxMap = new Map<number, { box: ArchiveBox; rawUpdatedAt?: string }>();
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
         if (data && typeof data.id === 'number') {
-          loadedBoxes.push(sanitizeArchiveBox(data, data.id));
+          const sanitized = sanitizeArchiveBox(data, data.id);
+          const rawUpdatedAt = typeof data.updatedAt === 'string' ? data.updatedAt : undefined;
+          const prev = boxMap.get(sanitized.id);
+          if (!prev || sanitized.files.length > prev.box.files.length) {
+            boxMap.set(sanitized.id, { box: sanitized, rawUpdatedAt });
+          }
         }
       });
 
-      // Auto-reconcile once: If master ARCHIVE_BOXES contains boxes not yet stored in Firestore (e.g. 2016 boxes),
-      // merge them and sync to Firestore in background
-      if (!hasAutoReconciledOnce) {
+      const loadedBoxes: ArchiveBox[] = [];
+      const boxesToSync: ArchiveBox[] = [];
+      const shouldReconcileNow = !hasAutoReconciledOnce;
+      if (shouldReconcileNow) {
         hasAutoReconciledOnce = true;
+      }
+
+      for (const { box, rawUpdatedAt } of boxMap.values()) {
+        // Always hydrate completely empty master boxes; run missing-file merge once for older docs
+        const reconciled = reconcileBoxWithMaster(
+          box,
+          rawUpdatedAt,
+          false
+        );
+        if (reconciled.changed && (shouldReconcileNow || box.files.length === 0)) {
+          loadedBoxes.push(reconciled.box);
+          boxesToSync.push(reconciled.box);
+        } else {
+          loadedBoxes.push(box);
+        }
+      }
+
+      // Add any master ARCHIVE_BOXES not yet stored in Firestore
+      if (shouldReconcileNow) {
         const existingIds = new Set(loadedBoxes.map((b) => b.id));
         const missingMasterBoxes = ARCHIVE_BOXES.filter((b) => !existingIds.has(b.id));
         if (missingMasterBoxes.length > 0) {
-          console.info(`Auto-syncing ${missingMasterBoxes.length} missing master archive boxes to Firestore...`);
           loadedBoxes.push(...missingMasterBoxes);
-          seedFirestoreBoxes(missingMasterBoxes).catch((seedErr) => {
-            console.warn('Background master box sync notice:', seedErr);
-          });
+          boxesToSync.push(...missingMasterBoxes);
         }
+      }
+
+      if (boxesToSync.length > 0) {
+        console.info(`Auto-syncing ${boxesToSync.length} archive boxes with master records to Firestore...`);
+        seedFirestoreBoxes(boxesToSync).catch((seedErr) => {
+          console.warn('Background master box sync notice:', seedErr);
+        });
       }
 
       // Sort by box ID ascending
@@ -228,10 +369,10 @@ export async function saveBoxToCloud(box: ArchiveBox): Promise<void> {
   const path = `${BOXES_COLLECTION}/${getBoxDocId(box.id)}`;
   try {
     const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(box.id));
-    const payload = {
+    const payload = stripUndefinedDeep({
       ...box,
       updatedAt: new Date().toISOString(),
-    };
+    });
     await setDoc(docRef, payload, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
@@ -259,10 +400,13 @@ export async function seedFirestoreBoxes(boxes: ArchiveBox[]): Promise<void> {
     const batch = writeBatch(db);
     for (const box of boxes) {
       const docRef = doc(db, BOXES_COLLECTION, getBoxDocId(box.id));
-      batch.set(docRef, {
-        ...box,
-        updatedAt: new Date().toISOString(),
-      });
+      batch.set(
+        docRef,
+        stripUndefinedDeep({
+          ...box,
+          updatedAt: new Date().toISOString(),
+        })
+      );
     }
     await batch.commit();
   } catch (err) {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { parseSearchQuery } from '../utils/bilingualSearch';
 
 interface HighlightMatchProps {
@@ -7,49 +7,55 @@ interface HighlightMatchProps {
   className?: string;
 }
 
-export const HighlightMatch: React.FC<HighlightMatchProps> = ({
-  text,
-  query,
-  className = '',
-}) => {
-  if (!text) return null;
-  if (!query || !query.trim()) {
-    return <span className={className}>{text}</span>;
-  }
+export const HighlightMatch: React.FC<HighlightMatchProps> = React.memo(
+  ({ text, query, className = '' }) => {
+    const trimmedQuery = query?.trim() || '';
 
-  const parsed = parseSearchQuery(query);
-  const terms: string[] = [];
+    const compiled = useMemo(() => {
+      if (!trimmedQuery) return null;
 
-  for (const k of parsed.keywords) {
-    if (k.length >= 2) terms.push(k);
-  }
-  if (parsed.targetFileNumber !== undefined) {
-    terms.push(String(parsed.targetFileNumber));
-  }
-  if (parsed.targetYear !== undefined) {
-    terms.push(String(parsed.targetYear));
-  }
+      const parsed = parseSearchQuery(trimmedQuery);
+      const terms: string[] = [];
 
-  if (terms.length === 0) {
-    return <span className={className}>{text}</span>;
-  }
+      for (const k of parsed.keywords) {
+        if (k.length >= 2) terms.push(k);
+      }
+      if (parsed.targetFileNumber !== undefined) {
+        terms.push(String(parsed.targetFileNumber));
+      }
+      if (parsed.targetYear !== undefined) {
+        terms.push(String(parsed.targetYear));
+      }
 
-  // Remove duplicates and sort by length descending to match longest phrases first
-  const uniqueTerms = Array.from(new Set(terms)).sort((a, b) => b.length - a.length);
-  const escaped = uniqueTerms
-    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|');
+      if (terms.length === 0) return null;
 
-  try {
-    const regex = new RegExp(`(${escaped})`, 'gi');
-    const parts = text.split(regex);
+      const uniqueTerms = Array.from(new Set(terms)).sort((a, b) => b.length - a.length);
+      const lowerSet = new Set(uniqueTerms.map((t) => t.toLowerCase()));
+      const escaped = uniqueTerms
+        .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('|');
+
+      try {
+        return {
+          regex: new RegExp(`(${escaped})`, 'gi'),
+          lowerSet,
+        };
+      } catch {
+        return null;
+      }
+    }, [trimmedQuery]);
+
+    if (!text) return null;
+    if (!compiled) {
+      return <span className={className}>{text}</span>;
+    }
+
+    const parts = text.split(compiled.regex);
 
     return (
       <span className={className}>
         {parts.map((part, idx) => {
-          const isHit = uniqueTerms.some(
-            (t) => t.toLowerCase() === part.toLowerCase()
-          );
+          const isHit = compiled.lowerSet.has(part.toLowerCase());
           return isHit ? (
             <mark
               key={idx}
@@ -63,7 +69,6 @@ export const HighlightMatch: React.FC<HighlightMatchProps> = ({
         })}
       </span>
     );
-  } catch {
-    return <span className={className}>{text}</span>;
   }
-};
+);
+

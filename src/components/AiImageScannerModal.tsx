@@ -28,9 +28,20 @@ export function AiImageScannerModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
+  React.useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
   if (!isOpen) return null;
 
   const processFile = async (file: File) => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
     setPreviewUrl(URL.createObjectURL(file));
     setLoading(true);
     setExtracted(null);
@@ -107,30 +118,36 @@ export function AiImageScannerModal({
   return (
     <div
       onPaste={handlePaste}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto"
     >
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 w-full max-w-2xl max-h-[92dvh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200"
+      >
         {/* Header */}
-        <div className="bg-gradient-to-r from-indigo-600 via-blue-600 to-teal-700 text-white p-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md">
+        <div className="bg-gradient-to-r from-indigo-600 via-blue-600 to-teal-700 text-white p-4 sm:p-5 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-md shrink-0">
               <Camera className="w-5 h-5 text-amber-300 animate-pulse" />
             </div>
-            <div>
-              <h3 className="text-lg font-bold">فحص المستندات والفواتير بالذكاء الاصطناعي (AI OCR Scanner)</h3>
-              <p className="text-xs text-indigo-100">ارفع صورة الفاتورة أو الشيك أو التقطها بالكاميرا للتعرف الفوري والمزامنة</p>
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-lg font-bold truncate">فحص المستندات والفواتير بالذكاء الاصطناعي (AI OCR)</h3>
+              <p className="text-[11px] sm:text-xs text-indigo-100 truncate">التقط الفاتورة أو الشيك بكاميرا الهاتف أو ارفع الصورة للمزامنة</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+            className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+            aria-label="إغلاق"
           >
             <X className="w-5 h-5 text-white" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
           {/* Upload / Camera Action Buttons */}
           {!previewUrl && (
             <div className="space-y-4">
