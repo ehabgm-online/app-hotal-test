@@ -1,6 +1,7 @@
 import express from 'express';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import dotenv from 'dotenv';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -490,19 +491,20 @@ function buildHeuristicAiSearch(query: string) {
       10: 'الصندوق 10 يحتوي على موردين 2017 (المنصور للتجارة والتوزيع، شريف إبراهيم، TM Fashion).',
       11: 'الصندوق 11 يحتوي على مصاريف وجهات حكومية وفندق 2017 (بتروتريد، هيرو، الريتزكارلتون/شيلار، التأمينات).',
       12: 'الصندوق 12 يحتوي على شيكات ومستندات 2019 (بيبسي كولا، فلاور باور، كاجوال).',
-      13: 'الصندوق 13 يحتوي على موردين وشيكات 2021 (دومتي، أميكو، الأنصاري، بيروت للألبان، كايرو ثري، أرما).',
+      13: 'الصندوق 13 يحتوي على موردين وشيكات 2017 (دومتي، أميكو، الأنصاري، بيروت للألبان، كايرو ثري، أرما).',
       14: 'الصندوق 14 يحتوي على مستندات وشيكات عامة لعام 2017.',
       15: 'الصندوق 15 يحتوي على 16 مورد وشيكات ومستندات 2017 (بيبسي كولا، أ تو زي دبي، عادل زكي، أحمد سعيد، سحر موريس، كوانتا، نستله وترز الجبيليين، نالكو مصر، مامبيا مصر، يوروبيان بارادايس، نستله ووتر، بورسعيد سودانكو، سامو، بترو، برايم فودز، سحر موريس الوطنية للتوريدات).',
       16: 'الصندوق 16 يحتوي على 25 مورد وشيكات ومستندات 2017 (Office Mix, دعشوشة, الأدغم, الترانزيت, جرين لايف, نايل سكان, بتروكيما, فارما سايبيتا).',
       17: 'الصندوق 17 يحتوي على 16 مورد وشيكات ومستندات 2017 و 2016 (برو ميديا، ألفا، أحمد مجدي، محمد عزيز، النور، مؤسسة الأهرام، بست لخامات الأغذية، نو باجز، العابدين، عبده عرب، شركة المشروم، كاجوال، خيام نصار، المحمدي).',
       18: 'الصندوق 18 يحتوي على 16 مورد وشيكات ومستندات 2017 و 2016 (نيو لاين للتوريدات، منير ناصيف هركوس، الشركة الاتحادية لتجارة الأسماك، أعلام النصر، نادرة إبراهيم داود البرانسي، الأهرام للاستيراد وتصدير جرام، موستانج ليموزين، شركة المشروم، بود إيجيبت، الشروق الجديدة، المحمدي محمد المحمدي، أحمد فتوح عبد المقصود تركة كف).',
+      19: 'الصندوق 19 يحتوي على 19 مورد وشيكات ومستندات 2017 و 2016 (Al-Ashria, Nady Abdel Malek, Al Ahram Agricultural, Ahmed Abdalla Osman, Ali Ali El Tony, Nadia Mokhi Kamel, Alu Glass 2016, Orascom Trading, Orient Takaful Insurance, El Nour Vegetables, Amro Attia Hassan, Al Ekhlas, Nour Al Huda, Nablco, Alaa Mohamed Ragheb, Nadra Ibrahim Ahmed, Ahmed Abdel Fatah, El Nour).',
     };
 
     return {
       targetSupplierName: `الصندوق رقم ${targetBoxNumber}`,
       alternateSearchTerms: [`صندوق ${targetBoxNumber}`, `box ${targetBoxNumber}`],
       targetBoxNumber,
-      targetYear: targetBoxNumber === 12 ? 2019 : targetBoxNumber === 13 ? 2021 : 2017,
+      targetYear: targetBoxNumber === 12 ? 2019 : 2017,
       fileType,
       directAnswerAr: boxDescriptions[targetBoxNumber] || `محتويات الصندوق ${targetBoxNumber} مسجلة في الأرشيف.`,
       suggestedQueries: [`صندوق ${targetBoxNumber}`, `شيكات صندوق ${targetBoxNumber}`, 'عرض قائمة الموردين'],
