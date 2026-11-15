@@ -37,7 +37,7 @@ export class ErrorBoundary extends Component<Props, State> {
     } catch (e) {
       // ignore
     }
-    window.location.href = window.location.pathname;
+    window.location.href = `${window.location.origin}/#/`;
   };
 
   public render() {

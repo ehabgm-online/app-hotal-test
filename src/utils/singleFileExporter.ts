@@ -355,7 +355,7 @@ export function buildStandaloneSingleFileHtml(
 
     function getBoxLink(boxId) {
       const base = window.location.href.split('?')[0].split('#')[0];
-      return (base.startsWith('http') ? base : BASE_URL) + '?box=' + boxId;
+      return (base.startsWith('http') ? base : BASE_URL) + '#/boxes/' + boxId + '?focused=1';
     }
 
     function makeQrDataUrl(val, size = 150) {
@@ -657,13 +657,10 @@ export function buildStandaloneSingleFileHtml(
     }
 
     const params = new URLSearchParams(window.location.search);
-    if (params.get('box')) {
-      const bid = Number(params.get('box'));
-      if (BOXES.some(b => b.id === bid)) {
-        switchTab('boxes', bid);
-      } else {
-        render();
-      }
+    const hashMatch = (window.location.hash || '').match(/#\/boxes\/(\d+)/i);
+    const initialBid = hashMatch ? Number(hashMatch[1]) : params.get('box') ? Number(params.get('box')) : null;
+    if (initialBid && BOXES.some(b => b.id === initialBid)) {
+      switchTab('boxes', initialBid);
     } else {
       render();
     }

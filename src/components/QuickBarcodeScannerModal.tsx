@@ -309,7 +309,7 @@ export const QuickBarcodeScannerModal: React.FC<QuickBarcodeScannerModalProps> =
                     setInputVal(e.target.value);
                     setCameraError(null);
                   }}
-                  placeholder="مثال: 19 أو BOX-19 أو ARC-2017-BOX19 أو الصق رابط ?box=19..."
+                  placeholder="مثال: 19 أو BOX-19 أو ARC-2017-BOX19 أو الصق رابط #/boxes/19 أو ?box=19..."
                   className="w-full pr-10 pl-10 py-3 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:border-blue-600 font-mono-num"
                   autoFocus
                 />
@@ -478,7 +478,7 @@ export const QuickBarcodeScannerModal: React.FC<QuickBarcodeScannerModalProps> =
               <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
                 <span className="flex items-center gap-1">
                   <Link2 className="w-3.5 h-3.5 text-blue-600" />
-                  يدعم روابط الصناديق المباشرة (<code dir="ltr">?box=19</code>)
+                  يدعم روابط الصناديق المباشرة (<code dir="ltr">#/boxes/19</code> و <code dir="ltr">?box=19</code>)
                 </span>
                 <span className="flex items-center gap-1">
                   <Hash className="w-3.5 h-3.5 text-emerald-600" />

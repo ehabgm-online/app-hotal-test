@@ -563,10 +563,12 @@ app.post('/api/ai-search', async (req, res) => {
 - صندوق 10: موردين 2017 (المنصور للتجارة والتوزيع، TM Fashion، شريف إبراهيم)
 - صندوق 11: مصاريف وجهات حكومية وفندق 2017 (بتروتريد، هيرو للأغذية، فندق الريتزكارلتون/شركة شيلار، صيدناوي، الضرائب، التأمينات)
 - صندوق 12: شيكات ومستندات 2019 (بيبسي كولا مصر - مسجلة باسم Pepsi Coal Egypt، فلاور باور، كاجوال)
-- صندوق 13: موردين وشيكات 2021 (أميكو مصر، الأنصاري، دومتي/Arabian Co، باغيرا، بيروت للألبان، البدر، كايرو ثري، أرما للتجارة، أيمن أفندي، البيت العربي)
-- صندوق 14 & 15: مستندات وشيكات عامة للموردين 2017
+- صندوق 13: موردين وشيكات 2017 (أميكو مصر، الأنصاري، دومتي/Arabian Co، باغيرا، بيروت للألبان، البدر، كايرو ثري، أرما للتجارة، أيمن أفندي، البيت العربي)
+- صندوق 14: مستندات وشيكات عامة للموردين 2017
+- صندوق 15: 16 مورد 2017 (بيبسي كولا مصر، أ تو زي دبي، عادل زكي، أحمد سعيد، سحر موريس، كوانتا، نستله وترز الجبيلين، نالكو مصر، مامبيا مصر، يوروبيان بارادايس، نستله ووتر، بورسعيد سودانكو، سامو، بترو، برايم فودز، الوطنية للتوريدات)
 - صندوق 16: شيكات ومستندات موردين 2017 (أوفيس ميكس COF001، أوميجا COM002، أوليو COL001، نوفا CNU008، نورد سي CNO006، عصام جعفر CES003، دعشوشة CAL013، عبد الراضي CAH018، الإسكندرية للتنمية CAL008، الإسكندرية للتوريدات CAL018، الأدغم CAL019، محمد عزيز CMO005، 1984 CNI002، الترانزيت CNE006، نيو أوبتيمال CNE007، نيرست CNE008، راديو النيل CNI001، فارما سايبيتا CPH001، باك تك CPA002، جرين لايف COS003، بورسعيد CPO002، بي دبليو تي CPW001، بلان بي CPL001، بتروكيما CPE003، نايل سكان CNI003)
-- صندوق 17 & 18: شيكات وفواتير ومستندات الموردين لسنة 2017
+- صندوق 17 & 18: شيكات وفواتير ومستندات الموردين لسنة 2017 و 2016
+- صندوق 19: 19 مورد 2017 و 2016 (العشري CAL010، نادي عبد المالك CNA009، الأهرام الزراعية CAH013، أحمد عبد الله عثمان CAH008، علي علي التوني CAL015، نادية موحي CNA011، ألو جلاس CAL014 2016، أوراسكوم للتجارة COR002، أورينت للتأمين التكافلي COR001، النور للخضروات CNE008/CNO002، عمرو عطية الهنا CAM015، الإخلاص CAL012، نور الهدى للأسماك CNB007، نابلكو CNA008، علاء محمد راغب عين شمس للدواجن CAL020، نادرة إبراهيم البركة CNA006، أحمد عبد الفتاح CAH011)
 
 أجب دائماً بتنسيق JSON صالح حصراً بالحقول التالية بدون أي نص إضافي:
 {
@@ -735,7 +737,7 @@ app.post('/api/ai-vision-extract', async (req, res) => {
   "amount": number or null (قيمة الفاتورة أو المبلغ إن وجد),
   "year": number or null (السنة المالية إن وجدت مثل 2016 أو 2017 أو 2019 أو 2021),
   "notes": string (ملخص محتوى المستند أو الفاتورة أو ملاحظات إضافية),
-  "suggestedBoxNumber": number or null (رقم الصندوق المتوقع بناء على محتوى المستند من 1 إلى 18، أو 101 إلى 109 لسنة 2016)
+  "suggestedBoxNumber": number or null (رقم الصندوق المتوقع بناء على محتوى المستند من 1 إلى 19، أو 101 إلى 109 لسنة 2016)
 }`;
 
     const cleanBase64 = typeof imageBase64 === 'string'
@@ -776,7 +778,12 @@ app.post('/api/ai-vision-extract', async (req, res) => {
   }
 });
 
-// Start Full-Stack Server
+// JSON 404 fallback for unknown /api routes
+app.all('/api/*', (_req, res) => {
+  res.status(404).json({ error: 'API endpoint not found' });
+});
+
+// Start Full-Stack Server (skipped on Vercel serverless where default export is invoked directly)
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
 
@@ -798,10 +805,15 @@ async function startServer() {
         if (!result || !result.code) {
           return next();
         }
-        const cleanCode = result.code.replace(
-          'transport.connect(createHMRHandler(handleMessage));',
-          '/* HMR WebSocket disabled */'
-        );
+        const cleanCode = result.code
+          .replace(
+            'transport.connect(createHMRHandler(handleMessage));',
+            '/* HMR WebSocket disabled */'
+          )
+          .replace(
+            'throw new SendBeforeConnectError(',
+            'return; throw new SendBeforeConnectError('
+          );
         res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
         res.setHeader('Cache-Control', 'no-cache');
         return res.send(cleanCode);
@@ -811,8 +823,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
+    const distDir = path.resolve(__dirname, 'dist');
     app.use(
-      express.static(path.resolve(__dirname, 'dist'), {
+      express.static(distDir, {
         setHeaders(res, filePath) {
           if (filePath.endsWith('manifest.webmanifest')) {
             res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
@@ -823,7 +836,11 @@ async function startServer() {
       })
     );
     app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      const indexHtmlPath = path.join(distDir, 'index.html');
+      if (fs.existsSync(indexHtmlPath)) {
+        return res.sendFile(indexHtmlPath);
+      }
+      return res.status(404).send('Build output not found. Run npm run build first.');
     });
   }
 
@@ -832,4 +849,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;

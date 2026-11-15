@@ -9,6 +9,7 @@ import React, {
   useDeferredValue,
   startTransition,
 } from 'react';
+import { useLocation, useNavigate, Routes, Route, Navigate } from 'react-router-dom';
 import {
   Archive,
   ArrowRight,
@@ -49,6 +50,7 @@ import {
   Mic,
   Camera,
   CreditCard,
+  ScanBarcode,
 } from 'lucide-react';
 import { askGeminiAiSearch, AiSearchResponse } from './utils/aiSearchService';
 import {
@@ -123,6 +125,11 @@ const EditBoxModal = lazy(() =>
 const EditFileRecordModal = lazy(() =>
   import('./components/BoxEditorModals').then((m) => ({ default: m.EditFileRecordModal }))
 );
+const QuickBarcodeScannerModal = lazy(() =>
+  import('./components/QuickBarcodeScannerModal').then((m) => ({
+    default: m.QuickBarcodeScannerModal,
+  }))
+);
 
 /**
  * Matches a scanned barcode or QR payload to a specific ArchiveBox cleanly.
@@ -137,7 +144,13 @@ function findBoxByBarcode(
   if (!scanned) return undefined;
   const lower = scanned.toLowerCase();
 
-  // 1. QR URL deep-link payload (e.g. https://.../ ?box=16)
+  // 1. HashRouter or Query QR URL deep-link payload (e.g. https://.../#/boxes/19 or ?box=16)
+  const hashRouteMatch = scanned.match(/#\/boxes\/(\d+)\b/i) || scanned.match(/(?:^|\/)boxes\/(\d+)\b/i);
+  if (hashRouteMatch) {
+    const id = parseInt(hashRouteMatch[1], 10);
+    return boxList.find((b) => b.id === id);
+  }
+
   const urlMatch = scanned.match(/[?&]box=(\d+)\b/i);
   if (urlMatch) {
     const id = parseInt(urlMatch[1], 10);
@@ -191,6 +204,17 @@ function findBoxByBarcode(
   return undefined;
 }
 
+function findBoxAndFileByInput(
+  rawInput: string,
+  boxList: ArchiveBox[],
+  allowNumericOnly: boolean
+): { box?: ArchiveBox; fileNo?: number } {
+  const box = findBoxByBarcode(rawInput, boxList, allowNumericOnly);
+  const fileMatch = rawInput.match(/[?&]file=(\d+)\b/i);
+  const fileNo = fileMatch ? parseInt(fileMatch[1], 10) : undefined;
+  return { box, fileNo };
+}
+
 type ActiveSection = 'dashboard' | 'search' | 'boxes' | 'checks-vault' | 'qrcodes' | 'suppliers' | 'extraction-plan';
 type YearFilter = 'all' | number;
 type IntraSearchScope = 'current-box' | 'same-year';
@@ -208,13 +232,53 @@ function loadStoredBoxes(): ArchiveBox[] {
   return getLocalCachedBoxes();
 }
 
+const SECTION_PATHS: Record<ActiveSection, string> = {
+  dashboard: '/',
+  search: '/search',
+  boxes: '/boxes',
+  'checks-vault': '/checks-vault',
+  qrcodes: '/qrcodes',
+  suppliers: '/suppliers',
+  'extraction-plan': '/extraction-plan',
+};
+
+function getSectionFromPathname(pathname: string): ActiveSection {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === '/' || clean === '/dashboard') return 'dashboard';
+  if (clean === '/search') return 'search';
+  if (clean === '/boxes' || clean.startsWith('/boxes/')) return 'boxes';
+  if (clean === '/checks-vault') return 'checks-vault';
+  if (clean === '/qrcodes') return 'qrcodes';
+  if (clean === '/suppliers') return 'suppliers';
+  if (clean === '/extraction-plan') return 'extraction-plan';
+  return 'dashboard';
+}
+
 export function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [boxes, setBoxes] = useState<ArchiveBox[]>(loadStoredBoxes);
+  const boxesRef = useRef<ArchiveBox[]>(boxes);
+  boxesRef.current = boxes;
+  const [pendingCloudSync, setPendingCloudSync] = useState<number[]>([]);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(true);
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
   const [lastSyncTime, setLastSyncTime] = useState<string>('');
-  const [activeSection, setActiveSection] = useState<ActiveSection>('dashboard');
+  const activeSection = useMemo(
+    () => getSectionFromPathname(location.pathname),
+    [location.pathname]
+  );
+  const setActiveSection = useCallback(
+    (section: ActiveSection) => {
+      const targetPath = SECTION_PATHS[section] || '/';
+      if (location.pathname !== targetPath) {
+        navigate(targetPath);
+      }
+    },
+    [location.pathname, navigate]
+  );
   const [yearFilter, setYearFilter] = useState<YearFilter>('all');
   const [selectedBoxId, setSelectedBoxId] = useState<number>(1);
   const [highlightedFileNo, setHighlightedFileNo] = useState<number | null>(null);
@@ -238,6 +302,7 @@ export function App() {
   const [aiSearchResult, setAiSearchResult] = useState<AiSearchResponse | null>(null);
   const [isAiSettingsModalOpen, setIsAiSettingsModalOpen] = useState<boolean>(false);
   const [isAiImageScannerOpen, setIsAiImageScannerOpen] = useState<boolean>(false);
+  const [isQuickScannerOpen, setIsQuickScannerOpen] = useState<boolean>(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const intraSearchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -345,7 +410,10 @@ export function App() {
   const [isFocusedScanMode, setIsFocusedScanMode] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const p = new URLSearchParams(window.location.search);
-      return Boolean(p.get('box'));
+      if (p.get('box')) return true;
+      const hashQuery = window.location.hash.split('?')[1] || '';
+      const hp = new URLSearchParams(hashQuery);
+      return hp.get('focused') === '1' || Boolean(hp.get('box'));
     }
     return false;
   });
@@ -370,6 +438,7 @@ export function App() {
     } else if (section === 'modals') {
       void import('./components/BoxEditorModals');
       void import('./components/QrModal');
+      void import('./components/QuickBarcodeScannerModal');
     }
   }, []);
 
@@ -382,6 +451,7 @@ export function App() {
       void import('./components/BoxEditorModals');
       void import('./components/BoxCodes');
       void import('./components/ChecksVaultView');
+      void import('./components/QuickBarcodeScannerModal');
     };
     if (typeof win.requestIdleCallback === 'function') {
       const id = win.requestIdleCallback(runPrefetch, { timeout: 2500 });
@@ -405,6 +475,7 @@ export function App() {
           isAddSingleModalOpen ||
           isAiSettingsModalOpen ||
           isAiImageScannerOpen ||
+          isQuickScannerOpen ||
           mobileSidebarOpen
         ) {
           setConfirmDialog(null);
@@ -416,6 +487,7 @@ export function App() {
           setIsAddSingleModalOpen(false);
           setIsAiSettingsModalOpen(false);
           setIsAiImageScannerOpen(false);
+          setIsQuickScannerOpen(false);
           setMobileSidebarOpen(false);
         }
         return;
@@ -456,6 +528,7 @@ export function App() {
     return () => window.removeEventListener('keydown', handleGlobalKey);
   }, [
     activeSection,
+    confirmDialog,
     qrModalBox,
     isCreateBoxModalOpen,
     isBatchAddModalOpen,
@@ -464,96 +537,50 @@ export function App() {
     isAddSingleModalOpen,
     isAiSettingsModalOpen,
     isAiImageScannerOpen,
+    isQuickScannerOpen,
     mobileSidebarOpen,
+    setActiveSection,
   ]);
 
   const switchSection = useCallback(
     (section: ActiveSection, pushHistory = true) => {
       prefetchSectionChunk(section);
       triggerHaptic(10);
-      startTransition(() => {
-        setActiveSection(section);
-      });
       setMobileSidebarOpen(false);
-      if (pushHistory && typeof window !== 'undefined' && section !== activeSection) {
-        const url = new URL(window.location.href);
-        if (section === 'dashboard') {
-          url.searchParams.delete('section');
-        } else {
-          url.searchParams.set('section', section);
-        }
-        window.history.pushState({ section }, '', url.toString());
+      const targetPath =
+        section === 'boxes' ? `/boxes/${selectedBoxId}` : SECTION_PATHS[section] || '/';
+      if (location.pathname !== targetPath || location.search) {
+        navigate(targetPath, { replace: !pushHistory });
       }
     },
-    [prefetchSectionChunk, activeSection]
+    [prefetchSectionChunk, selectedBoxId, location.pathname, location.search, navigate]
   );
 
-  // Android Hardware Back Button & Browser History integration for overlays/sections
-  const anyOverlayOpen = Boolean(
-    qrModalBox ||
-      isCreateBoxModalOpen ||
-      isBatchAddModalOpen ||
-      boxToEdit ||
-      recordToEdit ||
-      isAddSingleModalOpen ||
-      isAiSettingsModalOpen ||
-      isAiImageScannerOpen ||
-      mobileSidebarOpen
-  );
-  const pushedModalHistoryRef = useRef(false);
-
+  // Sync HashRouter /boxes/:boxId and query params (?focused=1, ?file=N) cleanly
   useEffect(() => {
-    if (anyOverlayOpen && !pushedModalHistoryRef.current) {
-      pushedModalHistoryRef.current = true;
-      window.history.pushState({ ...(window.history.state || {}), __archiveModal: true }, '');
-    } else if (!anyOverlayOpen && pushedModalHistoryRef.current) {
-      pushedModalHistoryRef.current = false;
-      if (window.history.state?.__archiveModal) {
-        window.history.back();
+    const match = location.pathname.match(/^\/boxes\/(\d+)\/?$/i);
+    if (match) {
+      const boxId = Number(match[1]);
+      if (boxes.some((b) => b.id === boxId)) {
+        setSelectedBoxId(boxId);
+        const params = new URLSearchParams(location.search);
+        const fileParam = params.get('file');
+        if (fileParam) {
+          const parsedFile = Number(fileParam);
+          if (Number.isFinite(parsedFile)) setHighlightedFileNo(parsedFile);
+        }
+        if (params.get('focused') === '1') {
+          setIsFocusedScanMode(true);
+          setOpenedViaQrBanner(boxId);
+        }
       }
-    }
-  }, [anyOverlayOpen]);
-
-  useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      if (pushedModalHistoryRef.current) {
-        pushedModalHistoryRef.current = false;
-        setQrModalBox(null);
-        setIsCreateBoxModalOpen(false);
-        setIsBatchAddModalOpen(false);
-        setBoxToEdit(null);
-        setRecordToEdit(null);
-        setIsAddSingleModalOpen(false);
-        setIsAiSettingsModalOpen(false);
-        setIsAiImageScannerOpen(false);
-        setMobileSidebarOpen(false);
-        return;
-      }
-
-      const params = new URLSearchParams(window.location.search);
-      if (!params.get('box') && isFocusedScanMode) {
+    } else if (isFocusedScanMode) {
+      const params = new URLSearchParams(location.search);
+      if (!params.get('box') && params.get('focused') !== '1') {
         setIsFocusedScanMode(false);
       }
-
-      const targetSection = (e.state?.section || params.get('section') || 'dashboard') as ActiveSection;
-      const validSections: ActiveSection[] = [
-        'dashboard',
-        'search',
-        'boxes',
-        'checks-vault',
-        'qrcodes',
-        'suppliers',
-        'extraction-plan',
-      ];
-      const nextSection = validSections.includes(targetSection) ? targetSection : 'dashboard';
-      startTransition(() => {
-        setActiveSection(nextSection);
-      });
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [isFocusedScanMode]);
+    }
+  }, [location.pathname, location.search, boxes, isFocusedScanMode]);
 
   const handleYearFilterChange = useCallback((yr: YearFilter) => {
     startTransition(() => {
@@ -652,21 +679,58 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [activeSection, selectedBoxId, highlightedFileNo, boxViewMode]);
 
+  const markCloudPending = useCallback((boxId: number) => {
+    setPendingCloudSync((prev) => (prev.includes(boxId) ? prev : [...prev, boxId]));
+  }, []);
+
+  const clearCloudPending = useCallback((boxId: number) => {
+    setPendingCloudSync((prev) => prev.filter((id) => id !== boxId));
+  }, []);
+
+  const handleRetryCloudSync = useCallback(async () => {
+    if (pendingCloudSync.length === 0) return;
+    const idsToSync = [...pendingCloudSync];
+    showToast(`جاري إعادة مزامنة ${idsToSync.length} صندوق مع السحابة...`);
+    let syncedCount = 0;
+    for (const bid of idsToSync) {
+      const target = boxesRef.current.find((b) => b.id === bid);
+      if (!target) {
+        clearCloudPending(bid);
+        continue;
+      }
+      try {
+        await saveBoxToCloud(target);
+        clearCloudPending(bid);
+        syncedCount += 1;
+      } catch (e) {
+        console.warn('Retry sync failed for box', bid, e);
+      }
+    }
+    if (syncedCount > 0) {
+      showToast(`تمت مزامنة ${syncedCount} صندوق في السحابة بنجاح!`);
+    } else {
+      showToast('تعذر الاتصال بالسحابة حالياً، التعديلات محفوظة محلياً.');
+    }
+  }, [pendingCloudSync, clearCloudPending, showToast]);
+
   // Handle box creation with pasted suppliers (persisted directly to Cloud Firestore)
   const handleCreateBox = async (newBox: ArchiveBox) => {
-    setBoxes((prev) => {
-      const updated = [...prev, newBox];
-      cacheBoxesLocally(updated);
-      return updated;
-    });
+    const updated = [...boxesRef.current.filter((b) => b.id !== newBox.id), newBox].sort(
+      (a, b) => a.id - b.id
+    );
+    boxesRef.current = updated;
+    setBoxes(updated);
+    cacheBoxesLocally(updated);
     setSelectedBoxId(newBox.id);
-    setActiveSection('boxes');
+    navigate(`/boxes/${newBox.id}`);
     showToast(`جاري حفظ ${newBox.titleAr} في السحابة...`);
     try {
       await saveBoxToCloud(newBox);
+      clearCloudPending(newBox.id);
       showToast(`تم حفظ ومزامنة ${newBox.titleAr} في السحابة بنجاح! متزامن لجميع الأجهزة.`);
     } catch (e) {
       console.error('Failed to sync new box to cloud:', e);
+      markCloudPending(newBox.id);
       showToast(`تم الحفظ محلياً (تعذر الاتصال بالسحابة)`);
     }
   };
@@ -674,93 +738,101 @@ export function App() {
   // Handle batch adding suppliers to an existing box
   const handleBatchAddSuppliers = async (boxId: number, newFiles: ArchiveFileRecord[]) => {
     let boxToSave: ArchiveBox | null = null;
-    setBoxes((prev) => {
-      const updated = prev.map((b) => {
-        if (b.id !== boxId) return b;
-        const nb = {
-          ...b,
-          files: [...b.files, ...newFiles],
-        };
-        boxToSave = nb;
-        return nb;
-      });
-      cacheBoxesLocally(updated);
-      return updated;
+    const updated = boxesRef.current.map((b) => {
+      if (b.id !== boxId) return b;
+      const nb: ArchiveBox = {
+        ...b,
+        files: [...b.files, ...newFiles],
+      };
+      boxToSave = nb;
+      return nb;
     });
+    boxesRef.current = updated;
+    setBoxes(updated);
+    cacheBoxesLocally(updated);
     if (boxToSave) {
       try {
         await saveBoxToCloud(boxToSave);
+        clearCloudPending(boxId);
         showToast(`تمت إضافة ${newFiles.length} مورد ومزامنتها سحابياً بنجاح!`);
       } catch (e) {
         console.error('Failed to update cloud:', e);
-        showToast(`تمت الإضافة محلياً`);
+        markCloudPending(boxId);
+        showToast(`تمت الإضافة محلياً (بانتظار المزامنة السحابية)`);
       }
     }
   };
 
   // Update Box details
   const handleUpdateBox = async (updatedBox: ArchiveBox) => {
-    setBoxes((prev) => {
-      const updated = prev.map((b) => (b.id === updatedBox.id ? updatedBox : b));
-      cacheBoxesLocally(updated);
-      return updated;
-    });
+    const updated = boxesRef.current.map((b) => (b.id === updatedBox.id ? updatedBox : b));
+    boxesRef.current = updated;
+    setBoxes(updated);
+    cacheBoxesLocally(updated);
     try {
       await saveBoxToCloud(updatedBox);
+      clearCloudPending(updatedBox.id);
       showToast(`تم حفظ تعديلات ${updatedBox.titleAr} في السحابة بنجاح!`);
     } catch (e) {
       console.error('Failed to update cloud:', e);
-      showToast(`تم الحفظ محلياً`);
+      markCloudPending(updatedBox.id);
+      showToast(`تم الحفظ محلياً (بانتظار المزامنة السحابية)`);
     }
   };
 
   // Delete Box
   const handleDeleteBox = async (boxId: number) => {
-    if (boxes.length <= 1) {
+    if (boxesRef.current.length <= 1) {
       showToast('لا يمكن حذف الصندوق الوحيد المتبقي.');
       return;
     }
-    const remaining = boxes.filter((b) => b.id !== boxId);
+    const remaining = boxesRef.current.filter((b) => b.id !== boxId);
+    boxesRef.current = remaining;
     setBoxes(remaining);
     cacheBoxesLocally(remaining);
     setSelectedBoxId(remaining[0].id);
+    navigate(`/boxes/${remaining[0].id}`, { replace: true });
     try {
       await deleteBoxFromCloud(boxId);
+      clearCloudPending(boxId);
       showToast('تم حذف الصندوق من السحابة بنجاح.');
     } catch (e) {
       console.error('Failed to delete from cloud:', e);
+      showToast('تم حذف الصندوق محلياً.');
     }
   };
 
   // Update Single File / Supplier Record
   const handleUpdateRecord = async (boxId: number, updatedRecord: ArchiveFileRecord) => {
     let boxToSave: ArchiveBox | null = null;
-    setBoxes((prev) => {
-      const updated = prev.map((b) => {
-        if (b.id !== boxId) return b;
-        const nb = {
-          ...b,
-          files: b.files.map((f) => (f.fileNo === updatedRecord.fileNo ? updatedRecord : f)),
-        };
-        boxToSave = nb;
-        return nb;
-      });
-      cacheBoxesLocally(updated);
-      return updated;
+    const updated = boxesRef.current.map((b) => {
+      if (b.id !== boxId) return b;
+      const nb: ArchiveBox = {
+        ...b,
+        files: b.files.map((f) => (f.fileNo === updatedRecord.fileNo ? updatedRecord : f)),
+      };
+      boxToSave = nb;
+      return nb;
     });
+    boxesRef.current = updated;
+    setBoxes(updated);
+    cacheBoxesLocally(updated);
     if (boxToSave) {
       try {
         await saveBoxToCloud(boxToSave);
+        clearCloudPending(boxId);
         showToast(`تم حفظ تعديل "${updatedRecord.supplierName}" في السحابة بنجاح!`);
       } catch (e) {
         console.error('Failed to sync to cloud:', e);
+        markCloudPending(boxId);
+        showToast('تم حفظ التعديل محلياً (بانتظار المزامنة السحابية).');
       }
     }
   };
 
   // Delete Single File / Supplier Record
   const handleDeleteRecord = async (boxId: number, fileNo: number): Promise<void> => {
-    const targetBox = boxes.find((b) => b.id === boxId);
+    const targetBox = boxesRef.current.find((b) => b.id === boxId);
     const targetFile = targetBox?.files.find((f) => f.fileNo === fileNo);
     setConfirmDialog({
       title: 'تأكيد حذف المورد',
@@ -769,26 +841,27 @@ export function App() {
       tone: 'danger',
       onConfirm: async () => {
         let boxToSave: ArchiveBox | null = null;
-        setBoxes((prev) => {
-          const updated = prev.map((b) => {
-            if (b.id !== boxId) return b;
-            const filtered = b.files.filter((f) => f.fileNo !== fileNo);
-            const nb = {
-              ...b,
-              files: filtered,
-            };
-            boxToSave = nb;
-            return nb;
-          });
-          cacheBoxesLocally(updated);
-          return updated;
+        const updated = boxesRef.current.map((b) => {
+          if (b.id !== boxId) return b;
+          const nb: ArchiveBox = {
+            ...b,
+            files: b.files.filter((f) => f.fileNo !== fileNo),
+          };
+          boxToSave = nb;
+          return nb;
         });
+        boxesRef.current = updated;
+        setBoxes(updated);
+        cacheBoxesLocally(updated);
         if (boxToSave) {
           try {
             await saveBoxToCloud(boxToSave);
+            clearCloudPending(boxId);
             showToast('تم حذف المورد وتحديث السحابة بنجاح.');
           } catch (e) {
             console.error('Failed to sync to cloud:', e);
+            markCloudPending(boxId);
+            showToast('تم حذف المورد محلياً (بانتظار المزامنة السحابية).');
           }
         }
       },
@@ -799,30 +872,25 @@ export function App() {
   const handleToggleRecordCheck = async (boxId: number, fileNo: number) => {
     triggerHaptic(18);
     let boxToSave: ArchiveBox | null = null;
-    setBoxes((prev) => {
-      const updated = prev.map((b) => {
-        if (b.id !== boxId) return b;
-        const nb = {
-          ...b,
-          files: b.files.map((f) => {
-            if (f.fileNo !== fileNo) return f;
-            return {
-              ...f,
-              isChecked: !f.isChecked,
-            };
-          }),
-        };
-        boxToSave = nb;
-        return nb;
-      });
-      cacheBoxesLocally(updated);
-      return updated;
+    const updated = boxesRef.current.map((b) => {
+      if (b.id !== boxId) return b;
+      const nb: ArchiveBox = {
+        ...b,
+        files: b.files.map((f) => (f.fileNo === fileNo ? { ...f, isChecked: !f.isChecked } : f)),
+      };
+      boxToSave = nb;
+      return nb;
     });
+    boxesRef.current = updated;
+    setBoxes(updated);
+    cacheBoxesLocally(updated);
     if (boxToSave) {
       try {
         await saveBoxToCloud(boxToSave);
+        clearCloudPending(boxId);
       } catch (e) {
         console.error('Failed to sync check state:', e);
+        markCloudPending(boxId);
       }
     }
   };
@@ -830,25 +898,27 @@ export function App() {
   // Add Single Supplier Record
   const handleAddSingleRecord = async (boxId: number, newRecord: ArchiveFileRecord) => {
     let boxToSave: ArchiveBox | null = null;
-    setBoxes((prev) => {
-      const updated = prev.map((b) => {
-        if (b.id !== boxId) return b;
-        const nb = {
-          ...b,
-          files: [...b.files, newRecord],
-        };
-        boxToSave = nb;
-        return nb;
-      });
-      cacheBoxesLocally(updated);
-      return updated;
+    const updated = boxesRef.current.map((b) => {
+      if (b.id !== boxId) return b;
+      const nb: ArchiveBox = {
+        ...b,
+        files: [...b.files, newRecord],
+      };
+      boxToSave = nb;
+      return nb;
     });
+    boxesRef.current = updated;
+    setBoxes(updated);
+    cacheBoxesLocally(updated);
     if (boxToSave) {
       try {
         await saveBoxToCloud(boxToSave);
+        clearCloudPending(boxId);
         showToast(`تمت إضافة "${newRecord.supplierName}" وحفظها في السحابة بنجاح!`);
       } catch (e) {
         console.error('Failed to sync to cloud:', e);
+        markCloudPending(boxId);
+        showToast(`تمت إضافة "${newRecord.supplierName}" محلياً (بانتظار المزامنة السحابية).`);
       }
     }
   };
@@ -865,8 +935,11 @@ export function App() {
       amountEgp?: number;
     }
   ) => {
-    const targetBox = boxes.find((b) => b.id === boxId);
-    const nextFileNo = targetBox ? targetBox.files.length + 1 : 1;
+    const targetBox = boxesRef.current.find((b) => b.id === boxId);
+    const maxFileNo = targetBox
+      ? targetBox.files.reduce((max, f) => Math.max(max, f.fileNo || 0), 0)
+      : 0;
+    const nextFileNo = maxFileNo + 1;
     const fullRecord: ArchiveFileRecord = {
       fileNo: nextFileNo,
       envelopeLabel: `الظرف ${nextFileNo}`,
@@ -882,33 +955,38 @@ export function App() {
     await handleAddSingleRecord(boxId, fullRecord);
   };
 
-  // Re-number file records in a box sequentially from 1 to N
+  // Re-number file records in a box sequentially from 1 to N (preserves custom labels like صورة ١ / ملف)
   const handleRenumberFiles = async (boxId: number) => {
     let boxToSave: ArchiveBox | null = null;
-    setBoxes((prev) => {
-      const updated = prev.map((b) => {
-        if (b.id !== boxId) return b;
-        const renumbered = b.files.map((f, i) => ({
+    const updated = boxesRef.current.map((b) => {
+      if (b.id !== boxId) return b;
+      const renumbered = b.files.map((f, i) => {
+        const isGenericEnvelope = /^الظرف\s+\d+$/i.test((f.envelopeLabel || '').trim());
+        return {
           ...f,
           fileNo: i + 1,
-          envelopeLabel: `الظرف ${i + 1}`,
-        }));
-        const nb = {
-          ...b,
-          files: renumbered,
+          envelopeLabel: isGenericEnvelope || !f.envelopeLabel ? `الظرف ${i + 1}` : f.envelopeLabel,
         };
-        boxToSave = nb;
-        return nb;
       });
-      cacheBoxesLocally(updated);
-      return updated;
+      const nb: ArchiveBox = {
+        ...b,
+        files: renumbered,
+      };
+      boxToSave = nb;
+      return nb;
     });
+    boxesRef.current = updated;
+    setBoxes(updated);
+    cacheBoxesLocally(updated);
     if (boxToSave) {
       try {
         await saveBoxToCloud(boxToSave);
+        clearCloudPending(boxId);
         showToast('تمت إعادة ترقيم الملفات وتحديث السحابة بنجاح!');
       } catch (e) {
         console.error('Failed to sync to cloud:', e);
+        markCloudPending(boxId);
+        showToast('تمت إعادة الترقيم محلياً (بانتظار المزامنة السحابية).');
       }
     }
   };
@@ -924,7 +1002,9 @@ export function App() {
         showToast('جاري استعادة الصناديق الأصلية في السحابة...');
         try {
           await resetCloudBoxesToDefault();
+          setPendingCloudSync([]);
           setSelectedBoxId(1);
+          navigate('/boxes/1', { replace: true });
           showToast('تمت استعادة الصناديق الأصلية في السحابة بنجاح.');
         } catch (err) {
           console.error('Failed to reset cloud:', err);
@@ -938,22 +1018,24 @@ export function App() {
   const handleSyncActiveBoxMaster = async (targetBox: ArchiveBox) => {
     const res = reconcileBoxWithMaster(targetBox, undefined, true);
     if (!res.changed) return;
-    setBoxes((prev) => {
-      const updated = prev.map((b) => (b.id === targetBox.id ? res.box : b));
-      cacheBoxesLocally(updated);
-      return updated;
-    });
+    const updated = boxesRef.current.map((b) => (b.id === targetBox.id ? res.box : b));
+    boxesRef.current = updated;
+    setBoxes(updated);
+    cacheBoxesLocally(updated);
     try {
       await saveBoxToCloud(res.box);
+      clearCloudPending(targetBox.id);
       showToast(`تمت مزامنة واستكمال ملفات ${res.box.titleAr} (${res.box.files.length} ملف) في السحابة بنجاح!`);
     } catch (e) {
       console.error('Failed to sync master box records:', e);
+      markCloudPending(targetBox.id);
       showToast(`تمت استعادة ملفات ${res.box.titleAr} محلياً.`);
     }
   };
 
   const openBoxFromBarcode = useCallback(
-    (matchedBox: ArchiveBox) => {
+    (matchedBox: ArchiveBox, options?: { focused?: boolean; fileNo?: number }) => {
+      const focused = options?.focused ?? false;
       startTransition(() => {
         if (yearFilter !== 'all' && !(matchedBox.years || []).includes(yearFilter)) {
           setYearFilter('all');
@@ -961,31 +1043,36 @@ export function App() {
         setSelectedBoxId(matchedBox.id);
         setIntraSearchScope('current-box');
         setIntraBoxQuery('');
-        setHighlightedFileNo(null);
-        setActiveSection('boxes');
-        setIsFocusedScanMode(false);
+        setHighlightedFileNo(options?.fileNo ?? null);
+        setIsFocusedScanMode(focused);
         setOpenedViaQrBanner(matchedBox.id);
         setMobileSidebarOpen(false);
       });
 
-      const url = new URL(window.location.href);
-      url.searchParams.set('box', String(matchedBox.id));
-      window.history.replaceState({}, '', url.toString());
+      const queryParts: string[] = [];
+      if (focused) queryParts.push('focused=1');
+      if (options?.fileNo) queryParts.push(`file=${options.fileNo}`);
+      const qs = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
+      navigate(`/boxes/${matchedBox.id}${qs}`);
 
       triggerHaptic([20, 35, 20]);
       showToast(`⚡ تم مسح باركود الصندوق وفتحه تلقائياً: ${matchedBox.titleAr} (${matchedBox.code})`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     },
-    [showToast, yearFilter]
+    [navigate, showToast, yearFilter]
   );
 
-  // Handle ?box=N, ?section=..., and ?scan=1 deep-links (QR scans & Android App Shortcuts) ONCE on initial boot
+  // Handle legacy ?box=N, ?section=..., ?scan=1, ?quickscan=1 & HashRouter deep-links ONCE on initial boot
   useEffect(() => {
     if (hasAppliedInitialDeepLink.current) return;
-    const params = new URLSearchParams(window.location.search);
-    const boxParam = params.get('box');
-    const sectionParam = params.get('section') as ActiveSection | null;
-    const scanParam = params.get('scan');
+    const winParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(location.search);
+
+    const boxParam = winParams.get('box') || hashParams.get('box');
+    const sectionParam = (winParams.get('section') || hashParams.get('section')) as ActiveSection | null;
+    const scanParam = winParams.get('scan') || hashParams.get('scan');
+    const quickScanParam = winParams.get('quickscan') || hashParams.get('quickscan');
+    const fileParam = winParams.get('file') || hashParams.get('file');
 
     if (boxParam) {
       const parsedId = Number(boxParam);
@@ -993,9 +1080,15 @@ export function App() {
       if (exists) {
         hasAppliedInitialDeepLink.current = true;
         setSelectedBoxId(parsedId);
-        setActiveSection('boxes');
         setOpenedViaQrBanner(parsedId);
         setIsFocusedScanMode(true);
+        if (fileParam && Number.isFinite(Number(fileParam))) {
+          setHighlightedFileNo(Number(fileParam));
+        }
+        if (window.location.search) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+        }
+        navigate(`/boxes/${parsedId}?focused=1${fileParam ? `&file=${fileParam}` : ''}`, { replace: true });
       }
       return;
     }
@@ -1012,12 +1105,18 @@ export function App() {
       'extraction-plan',
     ];
     if (sectionParam && validSections.includes(sectionParam)) {
-      setActiveSection(sectionParam);
+      if (window.location.search) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+      }
+      navigate(SECTION_PATHS[sectionParam], { replace: true });
     }
     if (scanParam === '1') {
       setIsAiImageScannerOpen(true);
     }
-  }, [boxes]);
+    if (quickScanParam === '1') {
+      setIsQuickScannerOpen(true);
+    }
+  }, [boxes, location.search, navigate]);
 
   // USB Barcode Scanner Support (HID / Keyboard Wedge):
   // Listens for rapid barcode scanner inputs ending with Enter (e.g. ARC-2017-BOX16, BOX-16, or QR URL)
@@ -1085,9 +1184,9 @@ export function App() {
   }, [boxes, openBoxFromBarcode, showToast]);
 
   const getBoxDirectUrl = useCallback((boxId: number): string => {
-    if (typeof window === 'undefined') return `?box=${boxId}`;
+    if (typeof window === 'undefined') return `#/boxes/${boxId}?focused=1`;
     const cleanBase = `${window.location.origin}${window.location.pathname}`;
-    return `${cleanBase}?box=${boxId}`;
+    return `${cleanBase}#/boxes/${boxId}?focused=1`;
   }, []);
 
   // Flatten all records for global analytics & instant search
@@ -1518,9 +1617,9 @@ export function App() {
     return scoredItems.map((x) => x.file);
   }, [activeBox, deferredIntraBoxQuery]);
 
-  // Navigation helpers (keeps year filter & highlighted file scroll synchronized)
+  // Navigation helpers (keeps HashRouter route, year filter & highlighted file scroll synchronized)
   const navigateToBox = useCallback(
-    (boxId: number, fileNoToHighlight?: number) => {
+    (boxId: number, fileNoToHighlight?: number, focused = false) => {
       const targetBox = boxes.find((b) => b.id === boxId);
       startTransition(() => {
         if (targetBox && yearFilter !== 'all' && !(targetBox.years || []).includes(yearFilter)) {
@@ -1530,15 +1629,16 @@ export function App() {
         setIntraSearchScope('current-box');
         setIntraBoxQuery('');
         setHighlightedFileNo(fileNoToHighlight ?? null);
-        setActiveSection('boxes');
+        setIsFocusedScanMode(focused);
         setMobileSidebarOpen(false);
       });
 
-      const url = new URL(window.location.href);
-      url.searchParams.set('box', String(boxId));
-      window.history.replaceState({}, '', url.toString());
+      const qp: string[] = [];
+      if (focused) qp.push('focused=1');
+      if (fileNoToHighlight) qp.push(`file=${fileNoToHighlight}`);
+      navigate(`/boxes/${boxId}${qp.length ? `?${qp.join('&')}` : ''}`);
     },
-    [boxes, yearFilter]
+    [boxes, yearFilter, navigate]
   );
 
   const triggerPrint = async (mode: PrintMode, boxId?: number) => {
@@ -1706,11 +1806,19 @@ export function App() {
 
             <button
               type="button"
+              onClick={() => setIsQuickScannerOpen(true)}
+              className="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 hover:text-white flex items-center justify-center border border-slate-700 transition-colors cursor-pointer"
+              title="مسح باركود أو رمز QR لصندوق آخر"
+              aria-label="مسح باركود صندوق"
+            >
+              <ScanBarcode className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 setIsFocusedScanMode(false);
-                const url = new URL(window.location.href);
-                url.searchParams.delete('box');
-                window.history.replaceState({}, '', url.toString());
+                navigate(`/boxes/${activeBox.id}`, { replace: true });
               }}
               className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
             >
@@ -1751,9 +1859,7 @@ export function App() {
                 const newId = Number(e.target.value);
                 setSelectedBoxId(newId);
                 setIntraBoxQuery('');
-                const url = new URL(window.location.href);
-                url.searchParams.set('box', String(newId));
-                window.history.replaceState({}, '', url.toString());
+                navigate(`/boxes/${newId}?focused=1`, { replace: true });
               }}
               className="bg-slate-800 text-white border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
             >
@@ -1931,9 +2037,7 @@ export function App() {
               type="button"
               onClick={() => {
                 setIsFocusedScanMode(false);
-                const url = new URL(window.location.href);
-                url.searchParams.delete('box');
-                window.history.replaceState({}, '', url.toString());
+                navigate('/');
               }}
               className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors shadow-sm cursor-pointer"
             >
@@ -1971,6 +2075,20 @@ export function App() {
 
   return (
     <div className="min-h-[100dvh] bg-slate-50 text-slate-900 flex flex-col lg:flex-row overflow-x-hidden" dir="rtl">
+      {/* HashRouter Canonical Route Guard (prevents 404 on unknown hash paths) */}
+      <Routes>
+        <Route path="/" element={null} />
+        <Route path="/dashboard" element={null} />
+        <Route path="/search" element={null} />
+        <Route path="/boxes" element={null} />
+        <Route path="/boxes/:boxId" element={null} />
+        <Route path="/checks-vault" element={null} />
+        <Route path="/qrcodes" element={null} />
+        <Route path="/suppliers" element={null} />
+        <Route path="/extraction-plan" element={null} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+
       {/* Top Background Sync Shimmer Bar */}
       {isSyncing && <TopSyncBar />}
 
@@ -2288,12 +2406,22 @@ export function App() {
                   {sectionTitles[activeSection]}
                 </h1>
                 {/* Cloud Sync Status Indicator */}
-                <div className="shrink-0">
+                <div className="shrink-0 flex items-center gap-1.5">
                   {isSyncing ? (
                     <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
                       <RefreshCw className="w-3 h-3 animate-spin text-amber-600" />
                       <span className="hidden sm:inline">جاري المزامنة...</span>
                     </span>
+                  ) : pendingCloudSync.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleRetryCloudSync}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2 py-0.5 rounded-full cursor-pointer transition-colors"
+                      title="يوجد تعديلات محلية بانتظار المزامنة — اضغط لإعادة المحاولة"
+                    >
+                      <RefreshCw className="w-3 h-3 text-amber-700" />
+                      <span>مزامنة ({pendingCloudSync.length})</span>
+                    </button>
                   ) : isCloudSynced ? (
                     <span
                       className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"
@@ -2361,22 +2489,22 @@ export function App() {
 
               <button
                 type="button"
+                onClick={() => setIsQuickScannerOpen(true)}
+                className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center cursor-pointer shadow-xs"
+                title="مسح باركود / رمز QR أو فتح صندوق سريع"
+                aria-label="ماسح الباركود السريع"
+              >
+                <ScanBarcode className="w-4 h-4 text-emerald-400" />
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setIsAiImageScannerOpen(true)}
                 className="w-9 h-9 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 text-white flex items-center justify-center cursor-pointer shadow-xs"
                 title="تصوير فاتورة أو شيك بالكاميرا (AI OCR)"
                 aria-label="فحص فاتورة بالكاميرا"
               >
                 <Camera className="w-4 h-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsFocusedScanMode(true)}
-                className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center cursor-pointer shadow-2xs"
-                title="فحص الصندوق الحالي بنمط الجوال المخصص للباركود"
-                aria-label="فحص الصندوق"
-              >
-                <Smartphone className="w-4 h-4 text-indigo-600" />
               </button>
 
               <button
@@ -2396,6 +2524,16 @@ export function App() {
                 variant="header"
                 onInstalled={() => showToast('تم تثبيت تطبيق الأرشيف على جهازك بنجاح!')}
               />
+
+              <button
+                type="button"
+                onClick={() => setIsQuickScannerOpen(true)}
+                className="px-2.5 sm:px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer shadow-2xs"
+                title="مسح رمز QR أو باركود الصندوق أو لصق الرابط لفتحه فوراً"
+              >
+                <ScanBarcode className="w-3.5 h-3.5 text-emerald-400" />
+                <span>ماسح QR / باركود</span>
+              </button>
 
               <button
                 type="button"
@@ -4224,6 +4362,14 @@ export function App() {
                 <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                   <button
                     type="button"
+                    onClick={() => setIsQuickScannerOpen(true)}
+                    className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 cursor-pointer whitespace-nowrap shadow-xs"
+                  >
+                    <ScanBarcode className="w-4 h-4 text-emerald-400" />
+                    <span>مسح QR / فتح صندوق بالباركود</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => triggerPrint('all-stickers')}
                     className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-2 cursor-pointer whitespace-nowrap shadow-xs"
                   >
@@ -5199,7 +5345,17 @@ export function App() {
             onClose={() => setQrModalBox(null)}
             getBoxUrl={getBoxDirectUrl}
             onPrintSingle={(boxId) => triggerPrint('single-sticker', boxId)}
-            onOpenBox={(boxId) => navigateToBox(boxId)}
+            onOpenBox={(boxId, focused) => navigateToBox(boxId, undefined, Boolean(focused))}
+          />
+        )}
+
+        {isQuickScannerOpen && (
+          <QuickBarcodeScannerModal
+            isOpen={isQuickScannerOpen}
+            onClose={() => setIsQuickScannerOpen(false)}
+            boxes={boxes}
+            findBoxByInput={(raw, allowNum) => findBoxAndFileByInput(raw, boxes, allowNum)}
+            onOpenBox={(matchedBox, options) => openBoxFromBarcode(matchedBox, options)}
           />
         )}
 
@@ -5208,6 +5364,7 @@ export function App() {
             isOpen={isCreateBoxModalOpen}
             onClose={() => setIsCreateBoxModalOpen(false)}
             nextBoxId={nextBoxId}
+            existingBoxIds={boxes.map((b) => b.id)}
             onCreateBox={handleCreateBox}
           />
         )}
