@@ -284,7 +284,10 @@ export function App() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(getActiveSession);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
+    saveActiveSession(null);
+    return null;
+  });
   const [isUserManagementModalOpen, setIsUserManagementModalOpen] = useState<boolean>(false);
   const [boxes, setBoxes] = useState<ArchiveBox[]>(loadStoredBoxes);
   const boxesRef = useRef<ArchiveBox[]>(boxes);
@@ -2761,14 +2764,16 @@ export function App() {
                   <div className="text-[10px] text-slate-400">@{currentUser.username} ({currentUser.role === 'admin' ? 'مدير عام 5199' : 'مستخدم'})</div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setIsUserManagementModalOpen(true)}
-                    className="p-1.5 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors cursor-pointer"
-                    title="إدارة المستخدمين والصلاحيات"
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                  </button>
+                  {currentUser.role === 'admin' && (
+                    <button
+                      type="button"
+                      onClick={() => setIsUserManagementModalOpen(true)}
+                      className="p-1.5 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 transition-colors cursor-pointer"
+                      title="إدارة المستخدمين والصلاحيات (للمدير العام فقط)"
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
