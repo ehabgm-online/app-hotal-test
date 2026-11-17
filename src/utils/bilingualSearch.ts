@@ -35,10 +35,13 @@ export function cleanArabic(str: string): string {
   if (cleanArabicCache.has(str)) return cleanArabicCache.get(str)!;
   const res = normalizeDigits(str)
     .toLowerCase()
+    .replace(/\u0640/g, '') // remove Arabic tatweel/kashida (ـ)
     .replace(/[أإآٱ]/g, 'ا')
     .replace(/ة/g, 'ه')
     .replace(/[ىئ]/g, 'ي')
     .replace(/ؤ/g, 'و')
+    .replace(/[کگ]/g, 'ك')
+    .replace(/ی/g, 'ي')
     .replace(/[\u064B-\u065F]/g, '') // remove Arabic vowels / diacritics
     .replace(/[^a-z0-9\u0600-\u06FF\s]/g, ' ') // replace special chars with spaces
     .replace(/\s+/g, ' ')
@@ -366,42 +369,92 @@ export const BILINGUAL_DICTIONARY: Record<string, { ar: string; en: string }> = 
   'union trading': { en: 'Union Trading Company', ar: 'شركة التداول المتحدة / اليونيون' },
   'alfa trade': { en: 'Alfa Trade For General supplies', ar: 'ألفا تريد للتوريدات العامة' },
   'misr mostakbal': { en: 'Misr Mostakbal Co.', ar: 'شركة مصر المستقبل' },
-  'office mix': { en: 'Office Mix on Line (COF001)', ar: 'أوفيس ميكس أون لاين' },
-  'officemix': { en: 'Office Mix on Line (COF001)', ar: 'أوفيس ميكس أون لاين' },
-  'omega': { en: 'Omega for Eng & Trading (COM002)', ar: 'أوميجا للهندسة والتجارة' },
-  'nova': { en: 'Nova For General supplies (CNU008)', ar: 'نوفا للتوريدات العامة' },
-  'nourd sea': { en: 'Nourd Sea For Imported (CNO006)', ar: 'نورد سي للاستيراد' },
-  'essam gafar': { en: 'ESSAM GAFAR NAGDI AHMED (CES003)', ar: 'عصام جعفر نجدي أحمد' },
-  'عصام جعفر': { en: 'ESSAM GAFAR NAGDI AHMED (CES003)', ar: 'عصام جعفر نجدي أحمد' },
-  'daashousha': { en: 'Ali Gaber Ali Darwish - Daashousha (CAL013)', ar: 'علي جابر علي درويش (دعشوشة)' },
-  'دعشوشة': { en: 'Ali Gaber Ali Darwish - Daashousha (CAL013)', ar: 'علي جابر علي درويش (دعشوشة)' },
-  'دعشوشه': { en: 'Ali Gaber Ali Darwish - Daashousha (CAL013)', ar: 'علي جابر علي درويش (دعشوشة)' },
-  'abdel rady': { en: 'Ahmed Hassan Abdel Rady Ahmed (CAH018)', ar: 'أحمد حسن عبد الراضي أحمد' },
-  'عبد الراضي': { en: 'Ahmed Hassan Abdel Rady Ahmed (CAH018)', ar: 'أحمد حسن عبد الراضي أحمد' },
-  'alexandria developing': { en: 'Alexandria For Developing & Trading (CAL008)', ar: 'الإسكندرية للتنمية والتجارة' },
-  'alexandria supply': { en: 'Alexandria For Supply (CAL018)', ar: 'الإسكندرية للتوريدات' },
-  'adgham': { en: 'Aly Ahmed Mohamed Ibrahim / Ali Adgham (CAL019)', ar: 'علي أحمد محمد إبراهيم / علي أدغم' },
-  'الأدغم': { en: 'Aly Ahmed Mohamed Ibrahim / Ali Adgham (CAL019)', ar: 'علي أحمد محمد إبراهيم / علي أدغم' },
-  'الادغم': { en: 'Aly Ahmed Mohamed Ibrahim / Ali Adgham (CAL019)', ar: 'علي أحمد محمد إبراهيم / علي أدغم' },
-  'nineteen eighty four': { en: 'Nineteen Eighty Four (CNI002)', ar: '1984 - ناينتين إيتي فور' },
-  'transit': { en: 'Nehad Mahrous Karim - Al Transit (CNE006)', ar: 'نهاد محروس كريم (الترانزيت)' },
-  'الترانزيت': { en: 'Nehad Mahrous Karim - Al Transit (CNE006)', ar: 'نهاد محروس كريم (الترانزيت)' },
-  'new optimal': { en: 'New optimual Technology (CNE007)', ar: 'نيو أوبتيمال تكنولوجي' },
-  'nearest': { en: 'Nearest For Service & Sust. Develop (CNE008)', ar: 'نيرست للخدمات والتنمية المستدامة' },
-  'nile radio': { en: 'Nile Radio production (CNI001)', ar: 'إنتاج راديو النيل' },
-  'راديو النيل': { en: 'Nile Radio production (CNI001)', ar: 'إنتاج راديو النيل' },
-  'pharmascienta': { en: 'PHARMASCIENTA (CPH001)', ar: 'فارما سايبيتا للأدوية' },
-  'فارما سايبيتا': { en: 'PHARMASCIENTA (CPH001)', ar: 'فارما سايبيتا للأدوية' },
-  'pack tec': { en: 'Pack - Tec 6 october (CPA002)', ar: 'باك تك 6 أكتوبر' },
-  'green life': { en: 'Osama Kamel - Green Life (COS003)', ar: 'أسامة كامل عبد الفتاح (جرين لايف للتوريدات الفندقية)' },
-  'جرين لايف': { en: 'Osama Kamel - Green Life (COS003)', ar: 'أسامة كامل عبد الفتاح (جرين لايف للتوريدات الفندقية)' },
-  'port said supplies': { en: 'Port Said For Supplies (CPO002)', ar: 'بورسعيد للتوريدات' },
-  'pwt': { en: 'PWT INTERNATIONAL (CPW001)', ar: 'بي دبليو تي إنترناشيونال' },
-  'plan be': { en: 'Plan Be For Food & beverage (CPL001)', ar: 'بلان بي للأغذية والمشروبات' },
-  'petro kima': { en: 'Petro Kima For Engineering & Contracting (CPE003)', ar: 'بترو كيما للهندسة والمقاولات' },
-  'بتروكيما': { en: 'Petro Kima For Engineering & Contracting (CPE003)', ar: 'بترو كيما للهندسة والمقاولات' },
-  'nile scan': { en: 'Nile Scan (CNI003)', ar: 'نايل سكان للأشعة والتحاليل' },
-  'نايل سكان': { en: 'Nile Scan (CNI003)', ar: 'نايل سكان للأشعة والتحاليل' },
+  'office mix': { en: 'Office Mix on Line', ar: 'أوفيس ميكس أون لاين' },
+  officemix: { en: 'Office Mix on Line', ar: 'أوفيس ميكس أون لاين' },
+  omega: { en: 'Omega for Eng & Trading', ar: 'أوميجا للهندسة والتجارة' },
+  nova: { en: 'Nova For General supplies', ar: 'نوفا للتوريدات العامة' },
+  'nourd sea': { en: 'Nourd Sea For Imported', ar: 'نورد سي للاستيراد' },
+  'essam gafar': { en: 'ESSAM GAFAR NAGDI AHMED', ar: 'عصام جعفر نجدي أحمد' },
+  'عصام جعفر': { en: 'ESSAM GAFAR NAGDI AHMED', ar: 'عصام جعفر نجدي أحمد' },
+  daashousha: { en: 'Ali Gaber Ali Darwish - Daashousha', ar: 'علي جابر علي درويش (دعشوشة)' },
+  'دعشوشة': { en: 'Ali Gaber Ali Darwish - Daashousha', ar: 'علي جابر علي درويش (دعشوشة)' },
+  'دعشوشه': { en: 'Ali Gaber Ali Darwish - Daashousha', ar: 'علي جابر علي درويش (دعشوشة)' },
+  'abdel rady': { en: 'Ahmed Hassan Abdel Rady Ahmed', ar: 'أحمد حسن عبد الراضي أحمد' },
+  'عبد الراضي': { en: 'Ahmed Hassan Abdel Rady Ahmed', ar: 'أحمد حسن عبد الراضي أحمد' },
+  'alexandria developing': { en: 'Alexandria For Developing & Trading', ar: 'الإسكندرية للتنمية والتجارة' },
+  'alexandria supply': { en: 'Alexandria For Supply', ar: 'الإسكندرية للتوريدات' },
+  adgham: { en: 'Aly Ahmed Mohamed Ibrahim / Ali Adgham', ar: 'علي أحمد محمد إبراهيم / علي أدغم' },
+  'الأدغم': { en: 'Aly Ahmed Mohamed Ibrahim / Ali Adgham', ar: 'علي أحمد محمد إبراهيم / علي أدغم' },
+  'الادغم': { en: 'Aly Ahmed Mohamed Ibrahim / Ali Adgham', ar: 'علي أحمد محمد إبراهيم / علي أدغم' },
+  'nineteen eighty four': { en: 'Nineteen Eighty Four', ar: 'ناينتين إيتي فور (1984)' },
+  transit: { en: 'Nehad Mahrous Karim - Al Transit', ar: 'نهاد محروس كريم (الترانزيت)' },
+  'الترانزيت': { en: 'Nehad Mahrous Karim - Al Transit', ar: 'نهاد محروس كريم (الترانزيت)' },
+  'new optimal': { en: 'New optimual Technology', ar: 'نيو أوبتيمال تكنولوجي' },
+  nearest: { en: 'Nearest For Service & Sust. Develop', ar: 'نيرست للخدمات والتنمية المستدامة' },
+  'nile radio': { en: 'Nile Radio production', ar: 'إنتاج راديو النيل' },
+  'راديو النيل': { en: 'Nile Radio production', ar: 'إنتاج راديو النيل' },
+  pharmascienta: { en: 'PHARMASCIENTA', ar: 'فارما سايبيتا للأدوية' },
+  'فارما سايبيتا': { en: 'PHARMASCIENTA', ar: 'فارما سايبيتا للأدوية' },
+  'pack tec': { en: 'Pack - Tec 6 october', ar: 'باك تك 6 أكتوبر' },
+  'green life': { en: 'Osama Kamel - Green Life', ar: 'أسامة كامل عبد الفتاح (جرين لايف للتوريدات الفندقية)' },
+  'جرين لايف': { en: 'Osama Kamel - Green Life', ar: 'أسامة كامل عبد الفتاح (جرين لايف للتوريدات الفندقية)' },
+  'port said supplies': { en: 'Port Said For Supplies', ar: 'بورسعيد للتوريدات' },
+  pwt: { en: 'PWT INTERNATIONAL', ar: 'بي دبليو تي إنترناشيونال' },
+  'plan be': { en: 'Plan Be For Food & beverage', ar: 'بلان بي للأغذية والمشروبات' },
+  'petro kima': { en: 'Petro Kima For Engineering & Contracting', ar: 'بترو كيما للهندسة والمقاولات' },
+  'بتروكيما': { en: 'Petro Kima For Engineering & Contracting', ar: 'بترو كيما للهندسة والمقاولات' },
+  'nile scan': { en: 'Nile Scan', ar: 'نايل سكان للأشعة والتحاليل' },
+  'نايل سكان': { en: 'Nile Scan', ar: 'نايل سكان للأشعة والتحاليل' },
+  // Box 15, 17, 18, 19 Suppliers
+  'al ashria': { en: 'Al-Ashria For Prcella Trading', ar: 'العشرية للتجارة (بورسيلا)' },
+  'العشرية': { en: 'Al-Ashria For Prcella Trading', ar: 'العشرية للتجارة (بورسيلا)' },
+  'nady abdel malek': { en: 'Nady Abdel Malek Abdel Sayed', ar: 'نادي عبد الملك عبد السيد' },
+  'نادي عبد الملك': { en: 'Nady Abdel Malek Abdel Sayed', ar: 'نادي عبد الملك عبد السيد' },
+  'al ahram agricultural': { en: 'Al Ahram Agricultural Trading', ar: 'الأهرام للتجارة الزراعية' },
+  'الأهرام للتجارة الزراعية': { en: 'Al Ahram Agricultural Trading', ar: 'الأهرام للتجارة الزراعية' },
+  'ahmed abdalla osman': { en: 'Ahmed Abdalla Osman', ar: 'أحمد عبد الله عثمان' },
+  'احمد عبد الله عثمان': { en: 'Ahmed Abdalla Osman', ar: 'أحمد عبد الله عثمان' },
+  'ali ali el tony': { en: 'Ali Ali El Tony', ar: 'علي علي التوني' },
+  'علي علي التوني': { en: 'Ali Ali El Tony', ar: 'علي علي التوني' },
+  'nadia mokhi': { en: 'Nadia Mokhi Kamel', ar: 'نادية مخي كامل (الشركة المصرية للتجارة الفتو)' },
+  'نادية مخي': { en: 'Nadia Mokhi Kamel', ar: 'نادية مخي كامل (الشركة المصرية للتجارة الفتو)' },
+  'alu glass': { en: 'Alu Glass', ar: 'ألو جلاس للألومنيوم والزجاج' },
+  'ألو جلاس': { en: 'Alu Glass', ar: 'ألو جلاس للألومنيوم والزجاج' },
+  orascom: { en: 'Orascom Trading', ar: 'أوراسكوم للتجارة' },
+  'أوراسكوم': { en: 'Orascom Trading', ar: 'أوراسكوم للتجارة' },
+  'orient takaful': { en: 'Orient Takaful Insurance Co.', ar: 'أورينت للتأمين التكافلي' },
+  'أورينت': { en: 'Orient Takaful Insurance Co.', ar: 'أورينت للتأمين التكافلي' },
+  'el nour': { en: 'El Nour Vegetables & Fruits', ar: 'النور للخضروات والفاكهة' },
+  'النور للخضروات': { en: 'El Nour Vegetables & Fruits', ar: 'النور للخضروات والفاكهة' },
+  'amro attia': { en: 'Amro Attia Hassan Mohamed', ar: 'عمرو عطية حسن محمد (شركة الهنا للتوريدات الغذائية)' },
+  'عمرو عطية': { en: 'Amro Attia Hassan Mohamed', ar: 'عمرو عطية حسن محمد (شركة الهنا للتوريدات الغذائية)' },
+  'الهنا للتوريدات': { en: 'Amro Attia Hassan Mohamed', ar: 'عمرو عطية حسن محمد (شركة الهنا للتوريدات الغذائية)' },
+  'al ekhlas': { en: 'Al Ekhlas Co.', ar: 'شركة الإخلاص' },
+  'الاخلاص': { en: 'Al Ekhlas Co.', ar: 'شركة الإخلاص' },
+  'nour al huda': { en: 'Nour Al Huda For Fish Trade', ar: 'نور الهدى لتجارة الأسماك' },
+  'نور الهدى': { en: 'Nour Al Huda For Fish Trade', ar: 'نور الهدى لتجارة الأسماك' },
+  nablco: { en: 'Nablco For Office Supplies', ar: 'نابلكو للتوريدات المكتبية' },
+  'نابلكو': { en: 'Nablco For Office Supplies', ar: 'نابلكو للتوريدات المكتبية' },
+  'alaa mohamed ragheb': { en: 'Alaa Mohamed Ragheb Abdel Rahman', ar: 'علاء محمد راغب (عين شمس للدواجن)' },
+  'عين شمس للدواجن': { en: 'Alaa Mohamed Ragheb Abdel Rahman', ar: 'علاء محمد راغب (عين شمس للدواجن)' },
+  'nadra ibrahim': { en: 'Nadra Ibrahim Ahmed Dosuki', ar: 'نادرة إبراهيم أحمد الدسوقي (البركة)' },
+  'البركة لتوريد الخضروات': { en: 'Nadra Ibrahim Ahmed Dosuki', ar: 'نادرة إبراهيم أحمد الدسوقي (البركة)' },
+  'ahmed abdel fatah': { en: 'Ahmed Abdel Fatah Abdel Rahman', ar: 'أحمد عبد الفتاح عبد الرحمن' },
+  'احمد عبد الفتاح': { en: 'Ahmed Abdel Fatah Abdel Rahman', ar: 'أحمد عبد الفتاح عبد الرحمن' },
+  'new line': { en: 'New Line For Supplies', ar: 'نيو لاين للتوريدات' },
+  'mounir naseef': { en: 'Mounir Naseef Horkos', ar: 'منير ناصيف هركوس' },
+  'union co for fish': { en: 'Union Co. For Fish Trading', ar: 'الشركة الاتحادية لتجارة الأسماك' },
+  'el nasr flags': { en: 'El Nasr Flags', ar: 'أعلام النصر' },
+  'mustang limousine': { en: 'Mustang Limousine', ar: 'موستانج ليموزين' },
+  mushroom: { en: 'Mushroom Co.', ar: 'شركة المشروم' },
+  'pod egypt': { en: 'POD Egypt', ar: 'بود إيجيبت' },
+  'new shouruk': { en: 'New Shouruk For Supplies & Commercial', ar: 'الشروق الجديدة للتوريدات والتجارة' },
+  almohamady: { en: 'Almohamady Mohamed Almohamady', ar: 'المحمدي محمد المحمدي' },
+  'ahmed foutoh': { en: 'Ahmed Foutoh Abdel Maksud', ar: 'أحمد فتوح عبد المقصود' },
+  'sahar mouris': { en: 'Sahar Mouris (Al Wataniya)', ar: 'سحر موريس (الوطنية للتوريدات)' },
+  'سحر موريس': { en: 'Sahar Mouris (Al Wataniya)', ar: 'سحر موريس (الوطنية للتوريدات)' },
+  'adel zaki': { en: 'Adel Zaki', ar: 'عادل زكي' },
+  'عادل زكي': { en: 'Adel Zaki', ar: 'عادل زكي' },
 };
 
 // Common bilingual vocabulary keywords for intelligent semantic matching
@@ -488,16 +541,49 @@ const LATIN_TO_ARABIC_CHAR: Record<string, string> = {
   z: 'ز',
 };
 
+const LATIN_DIGRAPHS_TO_ARABIC: Array<[string, string]> = [
+  ['tion', 'شن'],
+  ['sion', 'جن'],
+  ['ough', 'و'],
+  ['ph', 'ف'],
+  ['sh', 'ش'],
+  ['ch', 'تش'],
+  ['th', 'ث'],
+  ['kh', 'خ'],
+  ['gh', 'غ'],
+  ['qu', 'كو'],
+  ['oo', 'و'],
+  ['ou', 'و'],
+  ['ee', 'ي'],
+  ['ea', 'ي'],
+  ['ei', 'ي'],
+  ['ai', 'اي'],
+  ['ay', 'اي'],
+];
+
 export function transliterateLatinToArabic(input: string): string {
   const clean = input.toLowerCase().trim();
   let result = '';
-  for (let i = 0; i < clean.length; i++) {
+  let i = 0;
+  while (i < clean.length) {
+    let matchedDigraph = false;
+    for (const [latin, ar] of LATIN_DIGRAPHS_TO_ARABIC) {
+      if (clean.startsWith(latin, i)) {
+        result += ar;
+        i += latin.length;
+        matchedDigraph = true;
+        break;
+      }
+    }
+    if (matchedDigraph) continue;
+
     const char = clean[i];
     if (LATIN_TO_ARABIC_CHAR[char]) {
       result += LATIN_TO_ARABIC_CHAR[char];
     } else if (char === ' ') {
       result += ' ';
     }
+    i++;
   }
   return cleanArabic(result);
 }
@@ -506,10 +592,16 @@ export function transliterateLatinToArabic(input: string): string {
 export function canonicalBusinessToken(tok: string): string {
   let t = tok.toLowerCase().trim();
   if (!t) return '';
-  // OCR typos
+  // OCR & spelling normalizations
   if (t === 'coal') return 'cola';
   if (t === 'mostala') return 'mostafa';
   if (t === 'suppli_ing' || t === 'suppling' || t === 'supplying' || t === 'supplies' || t === 'suppl') return 'supply';
+  if (t === 'moh' || t === 'muh' || t === 'muhammad' || t === 'mohammed' || t === 'mahmoud' && false) return t;
+  if (t === 'moh' || t === 'muh' || t === 'muhammad' || t === 'mohammed') return 'mohamed';
+  if (t === 'aly') return 'ali';
+  if (t === 'abdalla' || t === 'abdallah' || t === 'abdulla' || t === 'abdullah') return 'abdalla';
+  if (t === 'vegetable' || t === 'vegetables' || t === 'veg') return 'vegetable';
+  if (t === 'fruit' || t === 'fruits') return 'fruit';
   // Prefixes & articles
   if (t === 'el') return 'al';
   // Common business contractions & stems
@@ -538,18 +630,39 @@ export function extractCanonicalTokens(str: string): string[] {
   const cached = canonicalTokensCache.get(str);
   if (cached) return cached;
 
-  let s = str
+  let s = normalizeDigits(str)
     .replace(/foodbrand/gi, 'food brand')
     .replace(/foodindust/gi, 'food indust')
     .replace(/impexp/gi, 'imp exp')
+    .replace(/\babd\s+el\b/gi, 'abdel')
+    .replace(/\babdel\s+/gi, 'abdel')
     .replace(/&/g, ' and ');
 
+  // Normalize Arabic compound words like "عبد الله" -> "عبدالله"
+  s = cleanArabic(s).replace(/عبد\s+ال/g, 'عبدال');
   s = s.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, ' ');
   const rawTokens = s.split(/\s+/).map((t) => t.trim().toLowerCase()).filter(Boolean);
   return setBoundedCache(canonicalTokensCache, str, rawTokens.map(canonicalBusinessToken));
 }
 
+/**
+ * Strips any embedded document/supplier codes (e.g. (CAL013), [COF001]) from a supplier name
+ * so linking & grouping always depend strictly on the Supplier Name itself.
+ */
+export function stripCodesFromSupplierName(name: string): string {
+  if (!name) return '';
+  return name
+    .replace(/\([A-Za-z]{1,5}\s*-?\s*\d{2,5}\)/g, ' ')
+    .replace(/\[[A-Za-z]{1,5}\s*-?\s*\d{2,5}\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export const KNOWN_EQUIVALENCE_CLUSTERS: string[][] = [
+  ['mohamed aziz', 'moh aziz', 'محمد عزيز'],
+  ['el nour vegetable', 'el nour - vegetables', 'el nour vegetables', 'النور للخضروات'],
+  ['amro attia hassan', 'عمرو عطية حسن', 'الهنا للتوريدات الغذائية'],
+  ['ali ali el tony', 'علي علي التوني'],
   ['al gezira', 'el gezira', 'gezira', 'الجزيرة'],
   ['al mostafa', 'al mostala', 'mostafa', 'mostala', 'المصطفى'],
   ['tiba', 'طيبة'],
@@ -590,6 +703,17 @@ export const KNOWN_EQUIVALENCE_CLUSTERS: string[][] = [
   ['moura for food industry', 'moura', 'مورا'],
   ['samir mohamed ali heidar', 'سمير محمد علي حيدر'],
   ['the arabic house for supp', 'the arabic house', 'البيت العربي'],
+  ['fouad stationary', 'فؤاد للقرطاسية', 'فؤاد للأدوات المكتبية'],
+  ['ahmed foutoh abdel maksoud', 'ahmed foutoh abdel maksud', 'أحمد فتوح عبد المقصود'],
+  ['orascom trading', 'أوراسكوم للتجارة'],
+  ['orient takaful', 'أورينت للتأمين'],
+  ['al-ashria for prcella', 'al ashria', 'العشرية'],
+  ['nady abdel malek', 'نادي عبد الملك'],
+  ['nadia mokhi kamel', 'نادية مخي كامل', 'الشركة المصرية للتجارة الفتو'],
+  ['alaa mohamed ragheb', 'عين شمس للدواجن'],
+  ['nadra ibrahim ahmed dosuki', 'البركة لتوريد الخضروات'],
+  ['nablco for office supplies', 'نابلكو'],
+  ['nour al huda for fish', 'نور الهدى لتجارة الأسماك'],
 ];
 
 const PRECOMPUTED_CLUSTERS: string[][] = KNOWN_EQUIVALENCE_CLUSTERS.map((cluster) =>
@@ -634,13 +758,96 @@ export function checkClusterMatch(targetText: string, searchQuery: string): bool
   return false;
 }
 
-const STOP_TOKENS = new Set(['for', 'and', 'the', 'و', 'في', 'من', 'co', 'company', 'corp']);
+const STOP_TOKENS = new Set(['for', 'and', 'the', 'و', 'في', 'من', 'co', 'company', 'corp', 'شركه', 'شركة']);
+
+// Conversational / voice / search intent filler words stripped only when substantive supplier/code tokens exist
+const QUERY_FILLER_TOKENS = new Set([
+  'فين', 'اين', 'عايز', 'عاوز', 'اريد', 'ابحث', 'دور', 'دورلي', 'علي', 'على', 'عن',
+  'ممكن', 'لو', 'سمحت', 'هات', 'هاتلي', 'وريني', 'شوفلي', 'موجود', 'موجوده',
+  'بتاع', 'بتاعه', 'بتوع', 'فواتير', 'فاتوره', 'مستندات', 'مستند', 'ملفات', 'ملف',
+  'شيكات', 'شيك', 'مورد', 'موردين', 'ارقام', 'رقم', 'كشف', 'بيانات',
+  'where', 'find', 'search', 'show', 'me', 'please', 'invoices', 'invoice',
+  'checks', 'check', 'supplier', 'suppliers', 'documents', 'files', 'box',
+]);
+
+function boundedEditDistance(a: string, b: string, maxDist = 2): number {
+  const m = a.length;
+  const n = b.length;
+  if (Math.abs(m - n) > maxDist) return maxDist + 1;
+  let prev = new Array<number>(n + 1);
+  let curr = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    if (rowMin > maxDist) return maxDist + 1;
+    const tmp = prev;
+    prev = curr;
+    curr = tmp;
+  }
+  return prev[n];
+}
 
 function getSubsetTokens(text: string): string[] {
   const cached = subsetTokensCache.get(text);
   if (cached) return cached;
-  const tokens = extractCanonicalTokens(text).filter((t) => !STOP_TOKENS.has(t) && t.length >= 2);
+  const cleaned = stripCodesFromSupplierName(text);
+  const tokens = extractCanonicalTokens(cleaned).filter((t) => !STOP_TOKENS.has(t) && t.length >= 2);
   return setBoundedCache(subsetTokensCache, text, tokens);
+}
+
+const canonicalSupplierKeyCache = new Map<string, string>();
+const CASHIER_QUALIFIER_TOKENS = new Set([
+  'g', 'cashier', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+  '2015', '2016', '2017', '2018', '2019', '2020', '2021',
+]);
+
+/**
+ * Computes a deterministic canonical key strictly from the Supplier Name (never from docNo/code).
+ * Ensures the same supplier across multiple boxes, years, or Arabic/English spellings links together cleanly.
+ */
+export function getCanonicalSupplierKey(supplierName: string): string {
+  if (!supplierName) return '';
+  const cached = canonicalSupplierKeyCache.get(supplierName);
+  if (cached !== undefined) return cached;
+
+  const stripped = stripCodesFromSupplierName(supplierName);
+  const lower = stripped.toLowerCase().trim();
+
+  // Check if name belongs to a known equivalence cluster -> unify to cluster[0]
+  for (let i = 0; i < PRECOMPUTED_CLUSTERS.length; i++) {
+    const cluster = PRECOMPUTED_CLUSTERS[i];
+    if (cluster.some((item) => item.length >= 4 && lower.includes(item))) {
+      return setBoundedCache(canonicalSupplierKeyCache, supplierName, `cluster:${cluster[0]}`);
+    }
+  }
+
+  // Otherwise build normalized name tokens (ignoring parenthetical date/cashier notes & connector words)
+  const withoutParens = stripped
+    .replace(/\([^)]*(?:cashier|20\d{2}|aug|sep|oct|nov|dec|jan|feb|mar|apr|may|jun|jul)[^)]*\)/gi, ' ')
+    .trim();
+  const tokens = extractCanonicalTokens(withoutParens).filter(
+    (t) => t.length >= 2 && !STOP_TOKENS.has(t) && !CASHIER_QUALIFIER_TOKENS.has(t)
+  );
+
+  const key = tokens.length > 0 ? tokens.join(' ') : cleanArabic(stripped) || cleanEnglish(stripped) || lower;
+  return setBoundedCache(canonicalSupplierKeyCache, supplierName, key);
+}
+
+/**
+ * Checks whether two records represent the same supplier STRICTLY by Supplier Name (not code).
+ */
+export function areSupplierNamesLinked(nameA: string, nameB: string): boolean {
+  if (!nameA || !nameB) return false;
+  const keyA = getCanonicalSupplierKey(nameA);
+  const keyB = getCanonicalSupplierKey(nameB);
+  if (keyA && keyB && keyA === keyB) return true;
+  return matchesBilingual(stripCodesFromSupplierName(nameA), stripCodesFromSupplierName(nameB));
 }
 
 export function checkTokenSubsetMatch(targetText: string, searchQuery: string): boolean {
@@ -692,7 +899,7 @@ function internalMatchesBilingual(targetText: string, searchQuery: string): bool
   // 1. Exact match
   if (rawTarget === rawQuery) return true;
 
-  // 2. Normalized Arabic match
+  // 2. Normalized Arabic match (handles "ال" prefix & compound spacing like "عبد الله" vs "عبدالله")
   const cleanTargetAr = cleanArabic(targetText);
   const cleanQueryAr = cleanArabic(searchQuery);
 
@@ -700,9 +907,8 @@ function internalMatchesBilingual(targetText: string, searchQuery: string): bool
     if (cleanTargetAr === cleanQueryAr) return true;
     if (cleanQueryAr.length >= 3 && cleanTargetAr.includes(cleanQueryAr)) return true;
 
-    // Check with stripped "ال" prefix
-    const strippedTarget = stripArabicDefiniteArticle(cleanTargetAr);
-    const strippedQuery = stripArabicDefiniteArticle(cleanQueryAr);
+    const strippedTarget = stripArabicDefiniteArticle(cleanTargetAr).replace(/عبد\s+ال/g, 'عبدال');
+    const strippedQuery = stripArabicDefiniteArticle(cleanQueryAr).replace(/عبد\s+ال/g, 'عبدال');
     if (strippedQuery.length >= 3 && strippedTarget.includes(strippedQuery)) return true;
   }
 
@@ -744,6 +950,15 @@ function internalMatchesBilingual(targetText: string, searchQuery: string): bool
         return true;
       }
     }
+  }
+
+  // 7. Phonetic Bilingual Transliteration Cross-Check (Arabic <-> English)
+  if (cleanQueryEn.length >= 4 && cleanTargetAr) {
+    const translitAr = transliterateLatinToArabic(cleanQueryEn);
+    if (translitAr.length >= 3 && cleanTargetAr.includes(translitAr)) return true;
+  } else if (cleanQueryAr.length >= 3 && cleanTargetEn) {
+    const translitTarget = transliterateLatinToArabic(cleanTargetEn);
+    if (translitTarget.length >= 3 && translitTarget.includes(cleanQueryAr)) return true;
   }
 
   return false;
@@ -951,13 +1166,18 @@ function internalScoreArchiveRecord(
     };
   }
 
-  // Pre-calculate clean strings for record fields
-  const cleanSupplierAr = cleanArabic(record.supplierName);
-  const cleanSupplierEn = cleanEnglish(record.supplierName);
-  const supplierWords = [
-    ...cleanSupplierAr.split(/\s+/),
-    ...cleanSupplierEn.split(/\s+/),
-  ].filter(Boolean);
+  // Pre-calculate clean strings for record fields (Supplier Name prioritized first!)
+  const strippedSupplier = stripCodesFromSupplierName(record.supplierName);
+  const cleanSupplierAr = cleanArabic(strippedSupplier);
+  const cleanSupplierEn = cleanEnglish(strippedSupplier);
+  const canonicalSupplierTokens = extractCanonicalTokens(strippedSupplier);
+  const supplierWords = Array.from(
+    new Set([
+      ...cleanSupplierAr.split(/\s+/),
+      ...cleanSupplierEn.split(/\s+/),
+      ...canonicalSupplierTokens,
+    ])
+  ).filter(Boolean);
 
   const cleanDoc = cleanEnglish(record.docNo).toLowerCase();
   const rawDoc = (record.docNo || '').toLowerCase().trim();
@@ -970,142 +1190,198 @@ function internalScoreArchiveRecord(
   const cleanSecAr = cleanArabic(supplierBi.secondary || '');
   const cleanSecEn = cleanEnglish(supplierBi.secondary || '');
 
-  // 4. Match every keyword in the query (AND logic)
+  // Bonus if full query matches supplier cluster / bilingual / canonical key directly
+  const fullQueryClean = stripCodesFromSupplierName(parsed.keywords.join(' '));
+  let fullSupplierBonus = 0;
+  if (fullQueryClean) {
+    if (getCanonicalSupplierKey(strippedSupplier) === getCanonicalSupplierKey(fullQueryClean)) {
+      fullSupplierBonus = 500;
+    } else if (checkClusterMatch(strippedSupplier, fullQueryClean)) {
+      fullSupplierBonus = 350;
+    } else if (checkTokenSubsetMatch(strippedSupplier, fullQueryClean)) {
+      fullSupplierBonus = 250;
+    }
+  }
+
+  // Filter out pure punctuation/empty connector & conversational voice filler tokens when other meaningful tokens exist
+  const nonStopKeywords = parsed.keywords.filter((k) => {
+    const c = cleanArabic(k) || cleanEnglish(k);
+    return c.length > 0 && !STOP_TOKENS.has(c);
+  });
+  const substantiveKeywords = nonStopKeywords.filter((k) => {
+    const c = cleanArabic(k) || cleanEnglish(k);
+    return !QUERY_FILLER_TOKENS.has(c);
+  });
+  const activeKeywords =
+    substantiveKeywords.length > 0
+      ? substantiveKeywords
+      : nonStopKeywords.length > 0
+      ? nonStopKeywords
+      : parsed.keywords;
+
+  // 4. Match every keyword in the query (AND logic) — Supplier Name Ranked #1
   let totalKeywordScore = 0;
 
-  for (const kw of parsed.keywords) {
+  for (const kw of activeKeywords) {
     const cleanKwAr = cleanArabic(kw);
     const cleanKwEn = cleanEnglish(kw);
+    const canonicalKw = canonicalBusinessToken(cleanKwEn || cleanKwAr);
     const rawKw = kw.toLowerCase().trim();
 
     let kwScore = 0;
     let kwField = '';
 
-    // A. Check Document Number (Highest Priority)
-    if (rawDoc && rawDoc !== '—') {
-      if (rawDoc === rawKw || cleanDoc === cleanKwEn) {
-        kwScore = Math.max(kwScore, 1200);
-        kwField = 'docNo';
-        matchType = 'exact-doc';
-      } else if (cleanKwEn.length >= 3 && cleanDoc.includes(cleanKwEn)) {
-        kwScore = Math.max(kwScore, 700);
-        kwField = 'docNo';
-        if (!matchType) matchType = 'exact-doc';
-      }
-    }
-
-    // B. Check Bank Check Number
-    if (rawCheck && rawCheck !== '—') {
-      if (rawCheck === rawKw) {
-        kwScore = Math.max(kwScore, 1200);
-        kwField = 'checkNo';
-      } else if (rawKw.length >= 3 && rawCheck.includes(rawKw)) {
-        kwScore = Math.max(kwScore, 700);
-        kwField = 'checkNo';
-      }
-    }
-
-    // C. Check Supplier Name (Exact, Word, Prefix, Substring)
+    // A. Primary Priority #1: Supplier Name (Exact, Canonical, StartsWith, Word, Substring)
     if (
       (cleanKwAr.length > 0 && cleanSupplierAr === cleanKwAr) ||
       (cleanKwEn.length > 0 && cleanSupplierEn === cleanKwEn)
     ) {
-      kwScore = Math.max(kwScore, 1000);
+      kwScore = Math.max(kwScore, 1600);
       kwField = 'supplierName';
       matchType = 'exact-supplier';
     } else if (
       (cleanKwAr.length >= 2 && cleanSupplierAr.startsWith(cleanKwAr)) ||
       (cleanKwEn.length >= 2 && cleanSupplierEn.startsWith(cleanKwEn))
     ) {
-      kwScore = Math.max(kwScore, 850);
+      kwScore = Math.max(kwScore, 1300);
       kwField = 'supplierName';
       if (!matchType) matchType = 'exact-supplier';
     } else if (
       (cleanKwAr.length >= 2 && supplierWords.includes(cleanKwAr)) ||
-      (cleanKwEn.length >= 2 && supplierWords.includes(cleanKwEn))
+      (cleanKwEn.length >= 2 && supplierWords.includes(cleanKwEn)) ||
+      (canonicalKw.length >= 2 && supplierWords.includes(canonicalKw))
     ) {
-      kwScore = Math.max(kwScore, 800);
+      kwScore = Math.max(kwScore, 1150);
       kwField = 'supplierName';
       if (!matchType) matchType = 'supplier-word';
     } else if (
       (cleanKwAr.length >= 3 && cleanSupplierAr.includes(cleanKwAr)) ||
       (cleanKwEn.length >= 3 && cleanSupplierEn.includes(cleanKwEn))
     ) {
-      kwScore = Math.max(kwScore, 500);
+      kwScore = Math.max(kwScore, 900);
       kwField = 'supplierName';
       if (!matchType) matchType = 'supplier-word';
     }
 
-    // Also check stripped "ال" prefix on Arabic
+    // Also check stripped "ال" prefix & compound spacing ("عبد الله" vs "عبدالله") on Arabic
     if (cleanKwAr.length >= 3) {
-      const strippedKw = stripArabicDefiniteArticle(cleanKwAr);
-      const strippedSup = stripArabicDefiniteArticle(cleanSupplierAr);
+      const strippedKw = stripArabicDefiniteArticle(cleanKwAr).replace(/عبد\s+ال/g, 'عبدال');
+      const strippedSup = stripArabicDefiniteArticle(cleanSupplierAr).replace(/عبد\s+ال/g, 'عبدال');
       if (strippedKw && strippedSup && (strippedSup.includes(strippedKw) || strippedKw === strippedSup)) {
-        kwScore = Math.max(kwScore, 650);
+        kwScore = Math.max(kwScore, 950);
         kwField = 'supplierName';
+        if (!matchType) matchType = 'supplier-word';
       }
     }
 
-    // Check Known Equivalence Cluster Match
-    if (kwScore === 0 && checkClusterMatch(record.supplierName, kw)) {
-      kwScore = Math.max(kwScore, 950);
+    // Check Known Equivalence Cluster Match on Supplier Name
+    if (kwScore < 1100 && checkClusterMatch(strippedSupplier, kw)) {
+      kwScore = Math.max(kwScore, 1250);
       kwField = 'supplierCluster';
       if (!matchType) matchType = 'exact-supplier';
     }
 
-    // Check Canonical Token Match
-    if (kwScore === 0 && checkTokenSubsetMatch(record.supplierName, kw)) {
-      kwScore = Math.max(kwScore, 850);
+    // Check Canonical Token Match on Supplier Name
+    if (kwScore < 1000 && checkTokenSubsetMatch(strippedSupplier, kw)) {
+      kwScore = Math.max(kwScore, 1050);
       kwField = 'supplierCanonical';
       if (!matchType) matchType = 'supplier-word';
     }
 
-    // D. Check Bilingual Dictionary & Secondary Names
+    // B. Secondary Bilingual Dictionary & Translated Supplier Names
     if (supplierBi.secondary) {
       if (
         (cleanKwAr.length > 0 && cleanSecAr === cleanKwAr) ||
         (cleanKwEn.length > 0 && cleanSecEn === cleanKwEn)
       ) {
-        kwScore = Math.max(kwScore, 850);
+        kwScore = Math.max(kwScore, 1200);
         kwField = 'supplierBilingual';
         if (!matchType) matchType = 'bilingual';
       } else if (
         (cleanKwAr.length >= 2 && cleanSecAr.startsWith(cleanKwAr)) ||
         (cleanKwEn.length >= 2 && cleanSecEn.startsWith(cleanKwEn))
       ) {
-        kwScore = Math.max(kwScore, 750);
+        kwScore = Math.max(kwScore, 1050);
         kwField = 'supplierBilingual';
         if (!matchType) matchType = 'bilingual';
       } else if (
         (cleanKwAr.length >= 3 && cleanSecAr.includes(cleanKwAr)) ||
         (cleanKwEn.length >= 3 && cleanSecEn.includes(cleanKwEn))
       ) {
-        kwScore = Math.max(kwScore, 600);
+        kwScore = Math.max(kwScore, 880);
         kwField = 'supplierBilingual';
         if (!matchType) matchType = 'bilingual';
       }
     }
 
-    // Transliteration cross-check (phonetics)
+    // Transliteration cross-check (phonetics on Supplier Name)
     if (kwScore === 0) {
       if (cleanKwEn.length >= 4 && cleanSupplierAr) {
         const translitAr = transliterateLatinToArabic(cleanKwEn);
         if (translitAr.length >= 3 && cleanSupplierAr.includes(translitAr)) {
-          kwScore = Math.max(kwScore, 450);
+          kwScore = Math.max(kwScore, 750);
           kwField = 'supplierTransliteration';
           if (!matchType) matchType = 'bilingual';
         }
       } else if (cleanKwAr.length >= 3 && cleanSupplierEn) {
         const translitAr = transliterateLatinToArabic(cleanSupplierEn);
         if (translitAr.length >= 3 && translitAr.includes(cleanKwAr)) {
-          kwScore = Math.max(kwScore, 450);
+          kwScore = Math.max(kwScore, 750);
           kwField = 'supplierTransliteration';
           if (!matchType) matchType = 'bilingual';
         }
       }
     }
 
-    // E. Check Notes (Lower Priority)
+    // Bounded fuzzy typo tolerance on Supplier Name tokens (for OCR, handwriting & voice quirks)
+    if (kwScore === 0) {
+      const targetFuzzyKw = cleanKwAr.length >= 4 ? cleanKwAr : cleanKwEn.length >= 4 ? cleanKwEn : '';
+      if (targetFuzzyKw) {
+        const maxDist = targetFuzzyKw.length >= 7 ? 2 : 1;
+        const candidateWords = [
+          ...supplierWords,
+          ...cleanSecAr.split(/\s+/).filter(Boolean),
+          ...cleanSecEn.split(/\s+/).filter(Boolean),
+        ];
+        for (const word of candidateWords) {
+          if (word.length < 4) continue;
+          if (targetFuzzyKw.length < 5 && word[0] !== targetFuzzyKw[0]) continue;
+          const dist = boundedEditDistance(targetFuzzyKw, word, maxDist);
+          if (dist <= maxDist) {
+            kwScore = Math.max(kwScore, dist === 1 ? 700 : 620);
+            kwField = 'supplierFuzzy';
+            if (!matchType) matchType = 'supplier-word';
+            break;
+          }
+        }
+      }
+    }
+
+    // C. Secondary: Bank Check Number (ranked below Supplier Name)
+    if (kwScore === 0 && rawCheck && rawCheck !== '—') {
+      if (rawCheck === rawKw) {
+        kwScore = Math.max(kwScore, 650);
+        kwField = 'checkNo';
+      } else if (rawKw.length >= 3 && rawCheck.includes(rawKw)) {
+        kwScore = Math.max(kwScore, 450);
+        kwField = 'checkNo';
+      }
+    }
+
+    // D. Secondary: Document / Reference Code (searchable if explicitly queried, never overrides Supplier Name)
+    if (kwScore === 0 && rawDoc && rawDoc !== '—') {
+      if (rawDoc === rawKw || cleanDoc === cleanKwEn) {
+        kwScore = Math.max(kwScore, 550);
+        kwField = 'docNo';
+        if (!matchType) matchType = 'exact-doc';
+      } else if (cleanKwEn.length >= 3 && cleanDoc.includes(cleanKwEn)) {
+        kwScore = Math.max(kwScore, 350);
+        kwField = 'docNo';
+        if (!matchType) matchType = 'exact-doc';
+      }
+    }
+
+    // E. Notes (Lowest Priority)
     if (kwScore === 0) {
       if (
         (cleanKwAr.length >= 3 && cleanNotesAr.includes(cleanKwAr)) ||
@@ -1128,10 +1404,10 @@ function internalScoreArchiveRecord(
     }
   }
 
-  const finalScore = score + totalKeywordScore;
+  const finalScore = score + fullSupplierBonus + totalKeywordScore;
   return {
     score: finalScore,
-    isExactMatch: finalScore >= 900,
+    isExactMatch: finalScore >= 1150,
     matchType,
     matchedFields,
   };

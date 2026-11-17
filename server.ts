@@ -1,5 +1,5 @@
 import express from 'express';
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
@@ -432,24 +432,120 @@ function buildHeuristicAiSearch(query: string) {
   if (q.includes('اميكو') || q.includes('أميكو') || q.includes('amico')) {
     return {
       targetSupplierName: 'Amico Of Egypt (أميكو مصر)',
-      alternateSearchTerms: ['Amico Of Egypt', 'أميكو مصر', 'أميكو', 'CAM002'],
+      alternateSearchTerms: ['Amico Of Egypt', 'أميكو مصر', 'أميكو'],
       targetBoxNumber: targetBoxNumber || 13,
-      targetYear: targetYear || 2021,
+      targetYear: targetYear || 2017,
       fileType,
-      directAnswerAr: 'تتواجد شيكات ومستندات شركة أميكو مصر في الصندوق 13، الظرف 2 (سند CAM002).',
-      suggestedQueries: ['صندوق 13', 'شيكات 2021', 'دومتي'],
+      directAnswerAr: 'تتواجد شيكات ومستندات شركة أميكو مصر (Amico Of Egypt) في الصندوق 13، الظرف 2.',
+      suggestedQueries: ['أميكو مصر', 'دومتي', 'صندوق 13'],
     };
   }
 
   if (q.includes('المنصور') || q.includes('mansour')) {
     return {
       targetSupplierName: 'Al Mansour Co. For Trading (المنصور للتجارة والتوزيع)',
-      alternateSearchTerms: ['Al Mansour Co. For Trading', 'المنصور', 'CAL004'],
+      alternateSearchTerms: ['Al Mansour Co. For Trading', 'المنصور للتجارة', 'المنصور'],
       targetBoxNumber: targetBoxNumber || 10,
       targetYear: targetYear || 2017,
       fileType,
-      directAnswerAr: 'تتواجد مستندات شركة المنصور للتجارة والتوزيع في الصندوق 10، الظرف 14 (سند CAL004).',
-      suggestedQueries: ['صندوق 10', 'مستندات 2017', 'TM Fashion'],
+      directAnswerAr: 'تتواجد مستندات شركة المنصور للتجارة والتوزيع (Al Mansour) في الصندوق 10، الظرف 14.',
+      suggestedQueries: ['المنصور', 'TM Fashion', 'صندوق 10'],
+    };
+  }
+
+  if (q.includes('النور') || q.includes('el nour') || q.includes('elnour')) {
+    return {
+      targetSupplierName: 'شركة النور للخضروات والفاكهة (El Nour Vegetables & Fruits)',
+      alternateSearchTerms: ['El Nour', 'النور للخضروات', 'النور', 'El Nour Vegetable & Fruits'],
+      targetBoxNumber: targetBoxNumber || null,
+      targetYear: targetYear || null,
+      fileType,
+      directAnswerAr: 'مورد "النور للخضروات والفاكهة / El Nour" مرتبط باسمه في الصندوق 9، والصندوق 17، والصندوق 19 (ملف #10 وملف #19).',
+      suggestedQueries: ['النور', 'القبيصي', 'عمرو عطية'],
+    };
+  }
+
+  if (q.includes('اوراسكوم') || q.includes('أوراسكوم') || q.includes('orascom')) {
+    return {
+      targetSupplierName: 'Orascom Trading (أوراسكوم للتجارة)',
+      alternateSearchTerms: ['Orascom Trading', 'أوراسكوم للتجارة', 'Orascom', 'أوراسكوم'],
+      targetBoxNumber: targetBoxNumber || 19,
+      targetYear: targetYear || 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات شركة أوراسكوم للتجارة (Orascom Trading) في الصندوق 19، الملف رقم 8 (سنة 2017).',
+      suggestedQueries: ['Orascom', 'أورينت للتأمين', 'صندوق 19'],
+    };
+  }
+
+  if (q.includes('اورينت') || q.includes('أورينت') || q.includes('orient')) {
+    return {
+      targetSupplierName: 'Orient Takaful Insurance (أورينت للتأمين التكافلي)',
+      alternateSearchTerms: ['Orient Takaful Insurance', 'أورينت للتأمين', 'Orient'],
+      targetBoxNumber: targetBoxNumber || 19,
+      targetYear: targetYear || 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات أورينت للتأمين التكافلي (Orient Takaful Insurance) في الصندوق 19، الملف رقم 9 (سنة 2017).',
+      suggestedQueries: ['Orient Takaful', 'أوراسكوم', 'صندوق 19'],
+    };
+  }
+
+  if (q.includes('عمرو عطية') || q.includes('عمرو عطيه') || q.includes('amro attia') || q.includes('الهنا')) {
+    return {
+      targetSupplierName: 'Amro Attia Hassan Mohamed / الهنا للخضروات (El Hana)',
+      alternateSearchTerms: ['Amro Attia Hassan Mohamed', 'عمرو عطية حسن', 'الهنا للخضروات', 'Amro Attia'],
+      targetBoxNumber: targetBoxNumber || null,
+      targetYear: targetYear || null,
+      fileType,
+      directAnswerAr: 'مستندات المورد عمرو عطية حسن محمد (الهنا للخضروات والفاكهة) مرتبطة باسمه في الصندوق 2 والصندوق 19 (ملف #11 وملف #13) وصندوق 2 لسنة 2016.',
+      suggestedQueries: ['عمرو عطية', 'النور للخضروات', 'صندوق 19'],
+    };
+  }
+
+  if (q.includes('محمد عزيز') || q.includes('mohamed aziz') || q.includes('moh aziz')) {
+    return {
+      targetSupplierName: 'Mohamed Aziz (محمد عزيز - الصراف العام)',
+      alternateSearchTerms: ['Mohamed Aziz', 'Moh Aziz', 'محمد عزيز'],
+      targetBoxNumber: targetBoxNumber || null,
+      targetYear: targetYear || null,
+      fileType,
+      directAnswerAr: 'المورد محمد عزيز (Mohamed Aziz / Moh Aziz) مرتبط باسمه عبر عدة صناديق: الصندوق 1، والصندوق 16، والصندوق 17، وصندوق 2 لسنة 2016.',
+      suggestedQueries: ['محمد عزيز', 'صندوق 17', 'صندوق 16'],
+    };
+  }
+
+  if (q.includes('نادرة') || q.includes('نادره') || q.includes('nadra') || q.includes('البركة')) {
+    return {
+      targetSupplierName: 'Nadra Ibrahim Ahmed (نادرة إبراهيم أحمد)',
+      alternateSearchTerms: ['Nadra Ibrahim Ahmed', 'نادرة إبراهيم', 'البركة'],
+      targetBoxNumber: targetBoxNumber || null,
+      targetYear: targetYear || null,
+      fileType,
+      directAnswerAr: 'السجلات المرتبطة باسم نادرة إبراهيم أحمد موجودة في الصندوق 18 (ملف #5) والصندوق 19 (ملف #17).',
+      suggestedQueries: ['نادرة إبراهيم', 'صندوق 18', 'صندوق 19'],
+    };
+  }
+
+  if (q.includes('علي التوني') || q.includes('التوني') || q.includes('el tony') || q.includes('tony')) {
+    return {
+      targetSupplierName: 'Ali Ali El Tony (علي علي التوني)',
+      alternateSearchTerms: ['Ali Ali El Tony', 'علي علي التوني', 'El Tony'],
+      targetBoxNumber: targetBoxNumber || null,
+      targetYear: targetYear || null,
+      fileType,
+      directAnswerAr: 'سجلات المورد علي علي التوني (Ali Ali El Tony) مرتبطة باسمه في الصندوق 19 (ملف #5) وصندوق 5 لسنة 2016.',
+      suggestedQueries: ['علي علي التوني', 'صندوق 19', 'صندوق 5 2016'],
+    };
+  }
+
+  if (q.includes('نور الهدى') || q.includes('nour al huda') || q.includes('الأسماك')) {
+    return {
+      targetSupplierName: 'Nour Al Huda (نور الهدى لتجارة الأسماك)',
+      alternateSearchTerms: ['Nour Al Huda', 'نور الهدى', 'نور الهدى للأسماك'],
+      targetBoxNumber: targetBoxNumber || 19,
+      targetYear: targetYear || 2017,
+      fileType,
+      directAnswerAr: 'تتواجد مستندات نور الهدى لتجارة الأسماك (Nour Al Huda) في الصندوق 19، الملف رقم 14.',
+      suggestedQueries: ['نور الهدى', 'الإخلاص', 'صندوق 19'],
     };
   }
 
@@ -538,6 +634,7 @@ app.post('/api/ai-search', async (req, res) => {
 
   const systemPrompt = `أنت المساعد الذكي لنظام الأرشيف الإلكتروني لشركة فندقية ومستنداتها (صناديق 2016، 2017، 2019، 2021).
 مهمتك تحليل استعلام المستخدم (بالعربي أو بالإنجليزي أو بالعامية أو مع أخطاء إملائية) واستخراج نية البحث بدقة، مع تصحيح الأخطاء الإملائية والترجمة الذكية وتحديد مكان حفظ الملفات والصناديق.
+قاعدة الربط والبحث الأساسية: اعتمد دائماً على **اسم المورد (بالعربي والإنجليزي)** في البحث وربط السجلات عبر كافة الصناديق والسنوات، ولا تعتمد على أكواد المستندات (docNo) كمعيار أساسي للربط، وضع مترادفات اسم المورد بالعربي والإنجليزي داخل alternateSearchTerms.
 الصناديق تحتوي على:
 [أرشيف سنة 2016 - فندق النيل ريتز كارلتون]:
 - صندوق 1 (2016): حسابات الموردين (مصر لتجارة الغزل والنسيج، المصرية للمشروعات السياحية، الأمل للتوريدات الفندقية، الدار العربية للتجارة)
@@ -566,9 +663,9 @@ app.post('/api/ai-search', async (req, res) => {
 - صندوق 13: موردين وشيكات 2017 (أميكو مصر، الأنصاري، دومتي/Arabian Co، باغيرا، بيروت للألبان، البدر، كايرو ثري، أرما للتجارة، أيمن أفندي، البيت العربي)
 - صندوق 14: مستندات وشيكات عامة للموردين 2017
 - صندوق 15: 16 مورد 2017 (بيبسي كولا مصر، أ تو زي دبي، عادل زكي، أحمد سعيد، سحر موريس، كوانتا، نستله وترز الجبيلين، نالكو مصر، مامبيا مصر، يوروبيان بارادايس، نستله ووتر، بورسعيد سودانكو، سامو، بترو، برايم فودز، الوطنية للتوريدات)
-- صندوق 16: شيكات ومستندات موردين 2017 (أوفيس ميكس COF001، أوميجا COM002، أوليو COL001، نوفا CNU008، نورد سي CNO006، عصام جعفر CES003، دعشوشة CAL013، عبد الراضي CAH018، الإسكندرية للتنمية CAL008، الإسكندرية للتوريدات CAL018، الأدغم CAL019، محمد عزيز CMO005، 1984 CNI002، الترانزيت CNE006، نيو أوبتيمال CNE007، نيرست CNE008، راديو النيل CNI001، فارما سايبيتا CPH001، باك تك CPA002، جرين لايف COS003، بورسعيد CPO002، بي دبليو تي CPW001، بلان بي CPL001، بتروكيما CPE003، نايل سكان CNI003)
-- صندوق 17 & 18: شيكات وفواتير ومستندات الموردين لسنة 2017 و 2016
-- صندوق 19: 19 مورد 2017 و 2016 (العشري CAL010، نادي عبد المالك CNA009، الأهرام الزراعية CAH013، أحمد عبد الله عثمان CAH008، علي علي التوني CAL015، نادية موحي CNA011، ألو جلاس CAL014 2016، أوراسكوم للتجارة COR002، أورينت للتأمين التكافلي COR001، النور للخضروات CNE008/CNO002، عمرو عطية الهنا CAM015، الإخلاص CAL012، نور الهدى للأسماك CNB007، نابلكو CNA008، علاء محمد راغب عين شمس للدواجن CAL020، نادرة إبراهيم البركة CNA006، أحمد عبد الفتاح CAH011)
+- صندوق 16: شيكات ومستندات موردين 2017 (أوفيس ميكس، أوميجا، أوليو، نوفا، نورد سي، عصام جعفر، دعشوشة / علي جابر علي درويش، عبد الراضي، الإسكندرية للتنمية، الإسكندرية للتوريدات، الأدغم، محمد عزيز، 1984، الترانزيت / نهاد محروس، نيو أوبتيمال، نيرست، راديو النيل، فارما سايبيتا، باك تك، جرين لايف / أسامة كامل، بورسعيد، بي دبليو تي، بلان بي، بتروكيما، نايل سكان)
+- صندوق 17 & 18: شيكات وفواتير ومستندات الموردين لسنة 2017 و 2016 (برو ميديا، ألفا، أحمد مجدي، محمد عزيز، النور، مؤسسة الأهرام، بست، نو باجز، العابدين، عبده عرب، المشروم، كاجوال، خيام نصار، المحمدي، نيو لاين، منير ناصيف هركوس، الاتحادية للأسماك، أعلام النصر، نادرة إبراهيم داود، الأهرام للاستيراد، موستانج ليموزين، بود إيجيبت، الشروق الجديدة، أحمد فتوح)
+- صندوق 19: 19 مورد 2017 و 2016 (العشرية، نادي عبد المالك، الأهرام الزراعية، أحمد عبد الله عثمان، علي علي التوني، نادية موحي كامل، ألو جلاس 2016، أوراسكوم للتجارة، أورينت للتأمين التكافلي، النور للخضروات والفاكهة، عمرو عطية حسن محمد / الهنا للخضروات، الإخلاص، نور الهدى للأسماك، نابلكو، علاء محمد راغب / عين شمس للدواجن، نادرة إبراهيم أحمد دسوقي / البركة، أحمد عبد الفتاح)
 
 أجب دائماً بتنسيق JSON صالح حصراً بالحقول التالية بدون أي نص إضافي:
 {
@@ -710,12 +807,106 @@ app.post('/api/ai-search', async (req, res) => {
   }
 });
 
-// AI Vision OCR & Document/Invoice Extraction Endpoint
+// AI Audio Speech-to-Text Transcription Endpoint (Arabic, Egyptian dialect & English supplier names)
+app.post('/api/ai-transcribe', async (req, res) => {
+  try {
+    const { audioBase64, mimeType } = req.body;
+    if (!audioBase64 || typeof audioBase64 !== 'string') {
+      return res.status(400).json({ error: 'بيانات الصوت مطلوبة للتحويل.' });
+    }
+
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    if (!geminiApiKey) {
+      return res.status(503).json({ error: 'مفتاح Gemini API غير مهيأ على الخادم.' });
+    }
+
+    const geminiClient = new GoogleGenAI({
+      apiKey: geminiApiKey,
+      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+    });
+
+    const cleanBase64 = audioBase64.replace(/^data:[^;]+;base64,/i, '');
+    const normalizedMime = typeof mimeType === 'string' && mimeType.includes('audio/')
+      ? mimeType.split(';')[0].trim()
+      : 'audio/webm';
+
+    const response = await geminiClient.models.generateContent({
+      model: 'gemini-3.5-transcribe',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: normalizedMime,
+              data: cleanBase64,
+            },
+          },
+          {
+            text: 'Transcribe this audio accurately into clean text. The speaker may speak Arabic (including Egyptian dialect), English, or a mix of Arabic and English company/supplier names, check numbers, years (2016-2021), or box numbers (صندوق). Preserve numbers as Western digits (0-9). Output ONLY the transcribed search text with no extra commentary or quotation marks.',
+          },
+        ],
+      },
+    });
+
+    const transcript = (response?.text || '').trim().replace(/^["«]|["»]$/g, '').trim();
+    if (!transcript) {
+      return res.status(422).json({ error: 'لم يتم التقاط كلام واضح في التسجيل الصوتي.' });
+    }
+
+    return res.json({
+      success: true,
+      transcript,
+      model: 'gemini-3.5-transcribe',
+    });
+  } catch (error: any) {
+    console.error('Error in /api/ai-transcribe:', error);
+    return res.status(500).json({
+      error: error?.message || 'تعذر تحويل الصوت إلى نص، يرجى المحاولة مرة أخرى.',
+    });
+  }
+});
+
+function normalizeExtractedDigits(val: unknown): string | null {
+  if (val === null || val === undefined) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+  const arabicIndic = '٠١٢٣٤٥٦٧٨٩';
+  const easternIndic = '۰۱۲۳۴۵۶۷۸۹';
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    const idxA = arabicIndic.indexOf(ch);
+    const idxE = easternIndic.indexOf(ch);
+    if (idxA !== -1) out += String(idxA);
+    else if (idxE !== -1) out += String(idxE);
+    else out += ch;
+  }
+  return out;
+}
+
+// AI Vision OCR, Bilingual Arabic/English & Handwriting / Document / Check Extraction Endpoint
 app.post('/api/ai-vision-extract', async (req, res) => {
   try {
-    const { imageBase64, mimeType } = req.body;
-    if (!imageBase64) {
-      return res.status(400).json({ error: 'Image data is required' });
+    const { imageBase64, mimeType, images, scanMode, knownSuppliers } = req.body;
+
+    const inputImages: Array<{ data: string; mimeType: string }> = [];
+    if (Array.isArray(images) && images.length > 0) {
+      for (const item of images.slice(0, 4)) {
+        if (item && typeof item.imageBase64 === 'string' && item.imageBase64.trim()) {
+          inputImages.push({
+            data: item.imageBase64.replace(/^data:[^;]+;base64,/i, ''),
+            mimeType: typeof item.mimeType === 'string' && item.mimeType ? item.mimeType : 'image/jpeg',
+          });
+        }
+      }
+    } else if (imageBase64 && typeof imageBase64 === 'string') {
+      inputImages.push({
+        data: imageBase64.replace(/^data:[^;]+;base64,/i, ''),
+        mimeType: typeof mimeType === 'string' && mimeType ? mimeType : 'image/jpeg',
+      });
+    }
+
+    if (inputImages.length === 0) {
+      return res.status(400).json({ error: 'بيانات الصورة مطلوبة للفحص.' });
     }
 
     const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -728,45 +919,161 @@ app.post('/api/ai-vision-extract', async (req, res) => {
       httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
     });
 
-    const visionPrompt = `أنت نظام الذكاء الاصطناعي الأرشيفي المتطور لفحص مستندات وفواتير وشيكات الفندق.
-مهمتك استخراج البيانات التالية من الصورة بدقة تامة وإرجاعها على شكل JSON صالح فقط:
-{
-  "supplierName": string or null (اسم المورد أو الشركة بالعربي أو الإنجليزي),
-  "docNo": string or null (رقم المستند أو الفاتورة إن وجد مثل COF001 أو CAL013 أو CMA001),
-  "checkNo": string or null (رقم الشيك إن وجد),
-  "amount": number or null (قيمة الفاتورة أو المبلغ إن وجد),
-  "year": number or null (السنة المالية إن وجدت مثل 2016 أو 2017 أو 2019 أو 2021),
-  "notes": string (ملخص محتوى المستند أو الفاتورة أو ملاحظات إضافية),
-  "suggestedBoxNumber": number or null (رقم الصندوق المتوقع بناء على محتوى المستند من 1 إلى 19، أو 101 إلى 109 لسنة 2016)
-}`;
+    const supplierHintsBlock =
+      Array.isArray(knownSuppliers) && knownSuppliers.length > 0
+        ? `\nقائمة مرجعية لأسماء الموردين المسجلين بالأرشيف لمساعدتك على فك غموض الخط اليدوي أو الحروف الباهتة فقط عند التطابق المعنوي:\n${knownSuppliers
+            .slice(0, 120)
+            .map((s: unknown) => String(s).trim())
+            .filter(Boolean)
+            .join(' | ')}`
+        : '';
 
-    const cleanBase64 = typeof imageBase64 === 'string'
-      ? imageBase64.replace(/^data:[^;]+;base64,/i, '')
-      : '';
+    const modeHint =
+      scanMode === 'handwriting'
+        ? 'تركيز فائق على قراءة خط اليد العربي (نسخ/رقعة) والإنجليزي (Cursive/Print) بدقة، بما في ذلك الملاحظات الجانبية، الخطوط المائلة، أرقام الشيكات والتواريخ المكتوبة بالقلم الجاف أو الرصاص، مع نسخ كل النص حرفياً في rawTranscribedText وفصله في arabicText و englishText.'
+        : scanMode === 'check'
+        ? 'تركيز فائق على الشيكات البنكية وإشعارات الصرف: استخراج اسم المستفيد/المورد بالعربي والإنجليزي، اسم البنك، رقم الشيك البنكي كاملاً، المبلغ، العملة، وتاريخ/سنة الاستحقاق.'
+        : scanMode === 'invoice'
+        ? 'تركيز فائق على الفواتير والكشوف متعددة الأسطر: استخراج المورد الأساسي وملخص المحتوى وجميع الصفوف/البنود أو الموردين الإضافيين في extractedItems.'
+        : 'فحص شامل ومتعمق للمحتوى سواء كان مستنداً مطبوعاً، مكتوباً بخط اليد، شيكاً بنكياً، ظرف أرشيف، أو مستنداً مختلطاً بالعربي والإنجليزي.';
+
+    const multiPageHint =
+      inputImages.length > 1
+        ? `\nتنبيه: تم إرفاق ${inputImages.length} صور لنفس المستند أو لصفحات متصلة (مثل وجه وظهر ظرف أو شيك وفاتورته). ادمج المعلومات من كل الصور بدقة متكاملة.`
+        : '';
+
+    const visionPrompt = `أنت نظام خبير في الرؤية الحاسوبية وقراءة الوثائق المالية والفندقية (OCR ثنائي اللغة: عربي + إنجليزي + خط اليد).
+${modeHint}${multiPageHint}
+
+قواعد صارمة للاستخراج والدقة:
+1. التحليل البصري الشامل للمحتوى:
+   - اقرأ كل كلمة مطبوعة أو مكتوبة بخط اليد، الأختام البنكية والشركات، ترويسة الصفحة، الهوامش، وأرقام الأظرف/الملفات.
+   - ضع النص الكامل مرتباً حسب السطور في "rawTranscribedText".
+   - افصل كل النص العربي المقروء في "arabicText"، وكل النص الإنجليزي المقروء في "englishText".
+   - اكتب ملخصاً واضحاً لمحتوى الصورة وطبيعة المعاملة في "documentSummaryAr".
+2. استخراج اسم المورد ثنائي اللغة:
+   - "supplierName": أفضل اسم موحد للمورد/الشركة.
+   - "supplierNameAr": الاسم بالعربية (وإن كان مكتوباً بالإنجليزية فقط في الصورة، أضف التعريب الدقيق له).
+   - "supplierNameEn": الاسم بالإنجليزية (وإن كان مكتوباً بالعربية فقط في الصورة، أضف الاسم الإنجليزي أو النطق اللاتيني الدقيق له).
+3. الأرقام والتواريخ:
+   - حوّل كافة الأرقام الهندية/العربية (٠١٢٣٤٥٦٧٨٩) إلى أرقام قياسية غربية (0-9) في docNo و checkNo و amount و year و documentDate.
+   - لا تخلط بين رقم الفاتورة (docNo) ورقم الشيك (checkNo) أو رقم الهاتف/السجل الضريبي.
+4. خط اليد والغموض:
+   - حدد handwritingDetected=true إذا وُجد أي خط يد (توقيع، اسم مورد، مبلغ، تاريخ، رقم ظرف).
+   - قيّم وضوح خط اليد في handwritingQuality ("clear" أو "moderate" أو "challenging").
+   - إذا كانت هناك كلمة غير واضحة تماماً بخط اليد، دوّن الاحتمال البديل داخل confidenceNotes.
+5. استخرج قائمة كلمات مفتاحية بحثية دقيقة (أسماء، أرقام شيكات، أكواد، بنوك، أظرف) في "extractedKeywords".
+6. إذا وُجد أكثر من مورد أو بند في كشف أو جدول، أدرج كل بند في "extractedItems".
+7. اقترح رقم الصندوق الأنسب في "suggestedBoxNumber" (من 1 إلى 19، أو 101 إلى 109 لأرشيف 2016) إن أمكن.${supplierHintsBlock}`;
+
+    const imageParts = inputImages.map((img) => ({
+      inlineData: {
+        data: img.data,
+        mimeType: img.mimeType,
+      },
+    }));
+
+    const useHighThinking =
+      scanMode === 'handwriting' || scanMode === 'invoice' || inputImages.length > 1;
 
     const response = await geminiClient.models.generateContent({
       model: 'gemini-4-hydrogen',
       contents: {
-        parts: [
-          {
-            inlineData: {
-              data: cleanBase64,
-              mimeType: mimeType || 'image/jpeg',
-            },
-          },
-          { text: visionPrompt },
-        ],
+        parts: [...imageParts, { text: visionPrompt }],
       },
       config: {
         responseMimeType: 'application/json',
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        thinkingConfig: {
+          thinkingLevel: useHighThinking ? ThinkingLevel.HIGH : ThinkingLevel.MEDIUM,
+        },
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            supplierName: { type: Type.STRING, nullable: true },
+            supplierNameAr: { type: Type.STRING, nullable: true },
+            supplierNameEn: { type: Type.STRING, nullable: true },
+            primaryLanguage: { type: Type.STRING, enum: ['ar', 'en', 'mixed'] },
+            docNo: { type: Type.STRING, nullable: true },
+            checkNo: { type: Type.STRING, nullable: true },
+            bankName: { type: Type.STRING, nullable: true },
+            documentDate: { type: Type.STRING, nullable: true },
+            amount: { type: Type.NUMBER, nullable: true },
+            currency: { type: Type.STRING, enum: ['EGP', 'USD', 'EUR', 'OTHER'] },
+            year: { type: Type.INTEGER, nullable: true },
+            envelopeOrFileHint: { type: Type.STRING, nullable: true },
+            notes: { type: Type.STRING },
+            suggestedBoxNumber: { type: Type.INTEGER, nullable: true },
+            documentType: {
+              type: Type.STRING,
+              enum: ['handwritten-note', 'bank-check', 'printed-invoice', 'envelope-manifest', 'mixed'],
+            },
+            handwritingDetected: { type: Type.BOOLEAN },
+            handwritingQuality: { type: Type.STRING, enum: ['clear', 'moderate', 'challenging'] },
+            arabicText: { type: Type.STRING },
+            englishText: { type: Type.STRING },
+            rawTranscribedText: { type: Type.STRING },
+            documentSummaryAr: { type: Type.STRING },
+            confidenceNotes: { type: Type.STRING, nullable: true },
+            extractedKeywords: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+            },
+            extractedItems: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  supplierName: { type: Type.STRING },
+                  supplierNameAr: { type: Type.STRING, nullable: true },
+                  supplierNameEn: { type: Type.STRING, nullable: true },
+                  docNo: { type: Type.STRING, nullable: true },
+                  checkNo: { type: Type.STRING, nullable: true },
+                  amount: { type: Type.NUMBER, nullable: true },
+                  year: { type: Type.INTEGER, nullable: true },
+                  notes: { type: Type.STRING, nullable: true },
+                },
+                required: ['supplierName'],
+              },
+            },
+          },
+          required: [
+            'notes',
+            'handwritingDetected',
+            'rawTranscribedText',
+            'arabicText',
+            'englishText',
+            'documentSummaryAr',
+            'documentType',
+            'primaryLanguage',
+          ],
+        },
       },
     });
 
-    const extractedData = safeParseAiJson(response?.text);
-    if (!extractedData) {
+    const parsed = safeParseAiJson<any>(response?.text);
+    if (!parsed) {
       return res.status(422).json({ error: 'تعذر تحليل بيانات الصورة بتنسيق صالح، حاول بصورة أوضح.' });
     }
+
+    const extractedData = {
+      ...parsed,
+      docNo: normalizeExtractedDigits(parsed.docNo),
+      checkNo: normalizeExtractedDigits(parsed.checkNo),
+      documentDate: normalizeExtractedDigits(parsed.documentDate),
+      envelopeOrFileHint: normalizeExtractedDigits(parsed.envelopeOrFileHint),
+      extractedKeywords: Array.isArray(parsed.extractedKeywords)
+        ? parsed.extractedKeywords
+            .map((k: unknown) => normalizeExtractedDigits(k))
+            .filter((k: string | null): k is string => Boolean(k))
+        : [],
+      extractedItems: Array.isArray(parsed.extractedItems)
+        ? parsed.extractedItems.map((it: any) => ({
+            ...it,
+            docNo: normalizeExtractedDigits(it.docNo),
+            checkNo: normalizeExtractedDigits(it.checkNo),
+          }))
+        : [],
+    };
 
     return res.json({
       success: true,
